@@ -130,6 +130,7 @@ body.touch .g.wind b{font-size:17px}
 .tb.small{width:60px;height:60px;font-size:11px}
 .tb.act{border-color:var(--water)}
 .tb.skill{border-color:var(--heather)}
+.tb.brake{border-color:var(--sky)}
 .tb.on{background:rgba(244,236,214,.35)}
 body.touch #gauges{bottom:auto;top:calc(var(--top));left:50%;padding:6px 12px;gap:12px}
 body.touch .g b{font-size:24px}
@@ -196,7 +197,11 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
 .slot .info{flex:1;min-width:200px;font-size:12.5px;color:var(--muted);line-height:1.4}
 .slot .info b{display:block;font-size:14px;color:var(--parch)}
 .transfer{display:grid;gap:8px;padding:12px 14px}
-.transfer textarea{width:100%;min-height:64px;box-sizing:border-box;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;background:rgba(0,0,0,.3);color:var(--parch);border:1px solid var(--line);border-radius:8px;padding:8px;resize:vertical;-webkit-user-select:text;user-select:text}
+.transfer textarea{width:100%;min-height:64px;box-sizing:border-box;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;background:rgba(0,0,0,.3);color:var(--parch);border:1px solid var(--line);border-radius:8px;padding:8px;resize:vertical;-webkit-user-select:text;user-select:text;-webkit-touch-callout:default;touch-action:auto}
+.codemsg{margin:0;font-size:13px;font-weight:700}
+.codemsg:empty{display:none}
+.codemsg.bad{color:var(--danger)}
+.slots{grid-template-columns:repeat(auto-fill,minmax(min(100%,400px),1fr))}
 #loading{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--display);font-size:22px;color:var(--parch)}
 </style>
 
@@ -262,6 +267,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
     <button id="bSkill" class="tb small skill" hidden>SKILL</button>
     <button id="bCam" class="tb small">VIEW</button>
     <button id="bDive" class="tb dive">DIVE</button>
+    <button id="bBrake" class="tb small brake" hidden>BRAKE</button>
     <button id="bFlap" class="tb big">FLAP</button>
   </div>
 </div>
@@ -286,6 +292,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
       <p class="note">Copy a save code on one device (Pause, then "Copy save code"), paste it here on another.</p>
       <textarea id="menuCode" placeholder="Paste a save code here"></textarea>
       <div class="row"><button id="menuCodeBtn" class="ghost">Load this code</button></div>
+      <p id="menuCodeMsg" class="codemsg" role="status"></p>
     </div>
     <div class="howto panel" id="howto"></div>
     <p class="note">Your game saves itself automatically in this browser. Use the save slots in the pause menu to keep extra copies.</p>
@@ -310,6 +317,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
       <p class="note">Copy the save code, send it to yourself, then paste it on the other device in "Load a saved game".</p>
       <div class="row"><button id="copyCodeBtn" class="ghost">Copy save code</button><button id="pauseCodeBtn" class="ghost">Load the code in the box</button></div>
       <textarea id="pauseCode" placeholder="Your save code appears here. You can also paste one in."></textarea>
+      <p id="pauseCodeMsg" class="codemsg" role="status"></p>
     </div>
     <h2 id="birdHead">Your peregrine</h2>
     <div class="statgrid panel" id="statgrid"></div>

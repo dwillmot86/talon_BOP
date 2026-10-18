@@ -5,8 +5,8 @@ const $ = id => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
 if (isTouch) document.body.classList.add('touch');
 const KEY = isTouch
-  ? { fly: 'FLAP', dive: 'DIVE', act: 'ACT', sleep: 'ACT', up: 'push the stick up', skill: 'the SKILL button' }
-  : { fly: 'Space', dive: 'Shift', act: 'E', sleep: 'Z', up: 'hold W', skill: 'Q' };
+  ? { fly: 'FLAP', dive: 'DIVE', act: 'ACT', sleep: 'ACT', up: 'push the stick up', skill: 'the SKILL button', brake: 'BRAKE' }
+  : { fly: 'Space', dive: 'Shift', act: 'E', sleep: 'Z', up: 'hold W', skill: 'Q', brake: 'B' };
 
 // ---------- helpers ----------
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -716,7 +716,7 @@ const FACTS = {
 };
 const PEREGRINE_MISSIONS = [
   { title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact: 'thermal' },
-  { title: 'Touch down', text: () => `Slow below 60 km/h, ${KEY.up} to flare, then land gently on the ground, a tree top or your nest.`, done: s => s.landings >= 1, fact: 'landing' },
+  { title: 'Touch down', text: () => `Hold ${KEY.brake} to brake below 60 km/h, then land gently on the ground, a tree top or your nest.`, done: s => s.landings >= 1, fact: 'landing' },
   { title: 'The stoop', text: () => `Climb high, then hold ${KEY.dive} to fold your wings and dive faster than 180 km/h.`, done: s => s.topSpeed >= 180, fact: 'stoop' },
   { title: 'First catch', text: () => 'Catch a wood pigeon. Strike fast, from above or behind, or it may dodge you.', done: s => s.pigeon >= 1, fact: 'pigeon' },
   { title: 'Hungry mouths', text: () => 'Carry your catch to your eyrie on the western cliffs (gold beam).', done: s => s.fed >= 1, fact: 'chicks' },
@@ -728,7 +728,7 @@ const PEREGRINE_MISSIONS = [
 ];
 const Q = {
   thermal: fact => ({ title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact }),
-  land: fact => ({ title: 'Touch down', text: () => `Slow below 60 km/h, ${KEY.up} to flare, then land gently.`, done: s => s.landings >= 1, fact }),
+  land: fact => ({ title: 'Touch down', text: () => `Hold ${KEY.brake} to brake below 60 km/h, then land gently.`, done: s => s.landings >= 1, fact }),
   feed: fact => ({ title: 'Hungry mouths', text: () => 'Carry your catch home to your nest (gold beam) to feed your chicks.', done: s => s.fed >= 1, fact }),
   drink: fact => ({ title: 'Thirsty work', text: () => `Land on the river bank, walk to the water's edge and press ${KEY.act} to drink.`, done: s => s.drinks >= 1, fact }),
   roost: fact => ({ title: 'Safe roost', text: () => `Land in a tree or your nest and press ${KEY.sleep} to sleep.`, done: s => s.sleeps >= 1, fact }),
@@ -1423,7 +1423,7 @@ function updateAudio() {
 // ---------- input ----------
 // inp.y: +1 means nose up (climb) in the air and walk forward on the ground
 const keys = {};
-const touch = { x: 0, y: 0, flap: false, dive: false, skill: false, id: null, ox: 0, oy: 0 };
+const touch = { x: 0, y: 0, flap: false, dive: false, skill: false, brake: false, id: null, ox: 0, oy: 0 };
 let flapHeld = false, skillHeld = false;
 addEventListener('keydown', e => {
   keys[e.code] = true;
@@ -1440,7 +1440,7 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 let padPrev = {};
 function readInput() {
-  let x = 0, y = 0, flap = false, tuck = false, skill = !!keys.KeyQ || touch.skill;
+  let x = 0, y = 0, flap = false, tuck = false, skill = !!keys.KeyQ || touch.skill, brake = !!keys.KeyB || touch.brake;
   if (keys.KeyA || keys.ArrowLeft) x -= 1;
   if (keys.KeyD || keys.ArrowRight) x += 1;
   if (keys.KeyW || keys.ArrowUp) y += 1;
@@ -1454,7 +1454,7 @@ function readInput() {
     const dz = v => Math.abs(v) < 0.15 ? 0 : v;
     x += dz(gp.axes[0] || 0); y -= dz(gp.axes[1] || 0);
     const b = i => gp.buttons[i]?.pressed;
-    flap ||= b(0); tuck ||= b(1) || b(7) || b(6); skill ||= b(5) || b(4);
+    flap ||= b(0); tuck ||= b(1) || b(7); brake ||= b(6); skill ||= b(5) || b(4);
     if (b(3) && !padPrev[3]) toggleCam();
     if (b(2) && !padPrev[2]) doAction();
     if (b(9) && !padPrev[9]) togglePause();
@@ -1464,7 +1464,7 @@ function readInput() {
   if (settings.invert && F.mode === 'fly') y = -y;
   const flapPressed = flap && !flapHeld; flapHeld = flap;
   const skillPressed = skill && !skillHeld; skillHeld = skill;
-  return { x: clamp(x, -1, 1), y: clamp(y, -1, 1), flap, tuck, flapPressed, skill, skillPressed };
+  return { x: clamp(x, -1, 1), y: clamp(y, -1, 1), flap, tuck: tuck && !brake, flapPressed, skill, skillPressed, brake };
 }
 {
   const zone = $('stickZone'), stick = $('stick'), knob = $('knob');
@@ -1487,7 +1487,7 @@ function readInput() {
     el.addEventListener('pointerdown', e => { touch[key] = true; el.classList.add('on'); el.setPointerCapture(e.pointerId); e.preventDefault(); });
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(ev, () => { touch[key] = false; el.classList.remove('on'); });
   };
-  hold('bFlap', 'flap'); hold('bDive', 'dive'); hold('bSkill', 'skill');
+  hold('bFlap', 'flap'); hold('bDive', 'dive'); hold('bSkill', 'skill'); hold('bBrake', 'brake');
   $('bCam').addEventListener('pointerdown', e => { e.preventDefault(); toggleCam(); });
   $('bAct').addEventListener('pointerdown', e => { e.preventDefault(); doAction(); });
   $('sleepScreen').addEventListener('pointerdown', () => wake());
@@ -1514,6 +1514,7 @@ const TIPS = {
   headwind: 'You are flying into a headwind, so you are going slower over the ground. The wind is lighter low down, so fly lower, or turn so the wind arrow points up (wind behind you).',
   energy: 'Energy is getting low. Stop flapping and glide: tip your nose down a little to keep your speed, and circle in a thermal to climb for free.',
   exhausted: 'Out of energy? Land on the ground, in a tree or at your nest to get it back. Eating something you catch also tops it up.',
+  landing: 'Coming in to land? Hold ' + KEY.brake + ' to spread your wings and tail like air brakes. Touch down below 60 km/h for a soft landing.',
   slow: 'Going slowly? Point your nose down a little to swap height for speed, or give a few flaps.',
   flapping: 'Real birds of prey glide most of the time and only flap in short bursts. Gliding saves energy for the hunt.',
   climb: 'To climb high without using energy, find a thermal (swirling golden dust) and circle inside it.',
@@ -1529,6 +1530,7 @@ function maybeTip(dt) {
   const w = F.wind, ws = w.length();
   const pick =
     flying && ws > 4 && (w.x * F.fwd.x + w.z * F.fwd.z) < -0.6 * ws ? 'headwind' :
+    flying && !F.braking && F.speed * 3.6 > 65 && F.fwd.y < -0.05 && F.pos.y - surfaceAt(F.pos.x, F.pos.z) < 20 ? 'landing' :
     F.exhausted ? 'exhausted' :
     flying && F.energy < energyCap() * 0.35 ? 'energy' :
     slowT > 3 ? 'slow' :
@@ -1877,7 +1879,7 @@ function checkCollisions() {
     }
     const steep = F.pitch < -0.45;
     if (kmh < 65 && !steep) landGround(true);
-    else if (kmh < 120 && F.pitch > -0.7) { landGround(false); injure(Math.round((kmh - 65) * 0.5) + 3, `Rough landing! Slow down and ${KEY.up} before you touch down.`); }
+    else if (kmh < 120 && F.pitch > -0.7) { landGround(false); injure(Math.round((kmh - 65) * 0.5) + 3, `Rough landing! Hold ${KEY.brake} to brake before you touch down.`); }
     else { landGround(false); F.stunT = 3; injure(Math.round(25 + (kmh - 120) * 0.25), 'Crash! Pull out of the dive sooner.'); }
     return true;
   }
@@ -1920,8 +1922,10 @@ function updateFlight(dt, inp) {
   F.pitch = clamp(F.pitch, -1.5, 0.85);
 
   const sp = Math.sin(F.pitch), agl = F.pos.y - surfaceAt(F.pos.x, F.pos.z);
-  F.flare = damp(F.flare, inp.y > 0.3 && agl < 25 && F.tuck < 0.3 && F.speed < 30 ? 1 : 0, 5, dt);
-  const openDrag = SP.drag + 0.004 * Math.max(0, -sp) + F.flare * 0.008;
+  // braking: spread wings and tail wide like air brakes and swing the feet forward
+  F.braking = !!inp.brake && F.tuck < 0.5;
+  F.flare = damp(F.flare, F.braking || (inp.y > 0.3 && agl < 25 && F.tuck < 0.3 && F.speed < 30) ? 1 : 0, 6, dt);
+  const openDrag = SP.drag + 0.004 * Math.max(0, -sp) + F.flare * 0.008 + (F.braking ? 0.014 : 0);
   const drag = lerp(openDrag, has('arrow') ? SP.arrowDrag : SP.tuckDrag, F.tuck);
   let acc = -9.8 * sp - drag * F.speed * F.speed;
   const flapping = inp.flap && canFlap && F.tuck < 0.5;
@@ -1947,7 +1951,7 @@ function updateFlight(dt, inp) {
     // hovering: wings beat hard, you hang in one spot facing the wind and can look straight down
     F.speed = damp(F.speed, 0.5, 3, dt); F.pitch = damp(F.pitch, 0, 3, dt); F.roll = damp(F.roll, 0, 3, dt);
     lift = 0; F.sink = 0;
-  } else F.speed = clamp(F.speed + acc * dt, 7, injured ? Math.min(75, SP.maxSpeed) : SP.maxSpeed);
+  } else F.speed = clamp(F.speed + acc * dt, F.braking ? 5 : 7, injured ? Math.min(75, SP.maxSpeed) : SP.maxSpeed);
 
   fwdOf(F.yaw, F.pitch, F.fwd);
   F.pos.addScaledVector(F.fwd, F.speed * dt);
@@ -2224,6 +2228,7 @@ function updateHUD() {
   if (flying && F.tuck > 0.5) tags.push(['STOOP', 'gold']);
   if (flying && F.thin) tags.push(['THIN AIR', 'bad']);
   if (F.inThermal && flying) tags.push(['THERMAL', 'good']);
+  if (flying && F.braking) tags.push(['BRAKING', 'gold']);
   if (F.hovering) tags.push(['HOVERING', 'gold']);
   if (F.listening) tags.push(['LISTENING', 'gold']);
   if (F.scanT > 0) tags.push([SP.ability === 'sight' ? 'KEEN SIGHT' : 'SCANNING', 'gold']);
@@ -2246,7 +2251,7 @@ function updateHUD() {
   if (act !== lastAct) { lastAct = act; $('bAct').textContent = act; $('bAct').hidden = !act; }
   const fl = flying ? 'FLAP' : 'TAKE OFF';
   if ($('bFlap').textContent !== fl) $('bFlap').textContent = fl;
-  $('bDive').hidden = !flying;
+  $('bDive').hidden = !flying; $('bBrake').hidden = !flying;
 
   // flight path marker and horizon line, so you can see where the nose is pointing
   const fpm = $('fpm'), hz = $('horizon');
@@ -2359,8 +2364,18 @@ function newGameState(species) {
   applySnapshot({ v: 2, species, xp: 0, mission: 0, stats: blankStats(), hour: SPECIES[species].start, day: 1, bird: { mode: 'perch', perchType: 'nest', yaw: Math.PI / 2, health: 100, energy: 100, food: 75, water: 75, rest: 85 } });
 }
 const encodeSave = s => 'TALON2:' + btoa(unescape(encodeURIComponent(JSON.stringify(s))));
+// Be forgiving: messaging apps add line breaks, spaces, quote marks or words around a pasted code.
+// Find the code part (it always starts "eyJ" once the TALON2: label is removed) and ignore everything else.
 function decodeSave(code) {
-  try { const raw = code.trim().replace(/^TALON2:/, ''); return JSON.parse(decodeURIComponent(escape(atob(raw)))); } catch (e) { return null; }
+  const text = String(code || '').replace(/\s+/g, '');
+  const m = text.match(/(?:TALON2:)?(eyJ[A-Za-z0-9+/_-]+=*)/);
+  if (!m) return null;
+  const raw = m[1].replace(/-/g, '+').replace(/_/g, '/');
+  // if words were typed straight after the code, trim from the end until it reads as a save
+  for (let end = raw.length; end > Math.max(8, raw.length - 80); end--) {
+    try { const s = JSON.parse(decodeURIComponent(escape(atob(raw.slice(0, end))))); if (s && s.v) return s; } catch (e) { }
+  }
+  return null;
 }
 function describeSave(s) {
   let l = 0; LEVELS.forEach((L, i) => { if ((s.xp || 0) >= L.xp) l = i; });
@@ -2368,8 +2383,9 @@ function describeSave(s) {
   const sp = SPECIES[s.species] ? s.species : 'peregrine', n = MISSION_SETS[sp].length;
   return { title: `${SPECIES[sp].name} · Level ${l + 1} · Day ${s.day} ${fmtTime(s.hour)}`, sub: `Quest ${Math.min((s.mission || 0) + 1, n)} of ${n} · saved ${when}` };
 }
+const SLOTS = 8;
 function renderSlots(el, inPause) {
-  el.innerHTML = [1, 2, 3].map(n => {
+  el.innerHTML = [...Array(SLOTS)].map((_, i) => i + 1).map(n => {
     const s = store.get(SLOT_KEY(n)), d = s && describeSave(s);
     return `<div class="slot panel"><div class="info"><b>Slot ${n}${d ? ': ' + d.title : ''}</b>${d ? d.sub : 'Empty'}</div>
       ${inPause ? `<button class="ghost" data-save="${n}">Save here</button>` : ''}
@@ -2404,8 +2420,11 @@ $('copyCodeBtn').addEventListener('click', () => {
   setTimeout(() => { $('copyCodeBtn').textContent = 'Copy save code'; }, 2500);
 });
 function loadCode(box, inPause) {
+  const msg = $(inPause ? 'pauseCodeMsg' : 'menuCodeMsg');
+  if (!box.value.trim()) { msg.textContent = 'Paste a save code into the box first.'; msg.className = 'codemsg bad'; return; }
   const s = decodeSave(box.value);
-  if (!s || s.v !== 2) { box.value = ''; box.placeholder = 'That code did not work. Check you copied all of it, then paste it again.'; return; }
+  if (!s || s.v !== 2) { msg.textContent = 'That code didn\'t work. It may have been cut short: copy the whole code again (it starts with TALON2:) and paste it in.'; msg.className = 'codemsg bad'; return; }
+  msg.textContent = ''; msg.className = 'codemsg';
   applySnapshot(s);
   if (inPause) togglePause(false); else startPlay();
   afterLoad('Loaded your save code.');
@@ -2435,8 +2454,8 @@ function renderCards() {
 }
 $('cards').addEventListener('click', e => { const c = e.target.closest('.card'); if (!c) return; chosen = c.dataset.id; renderCards(); });
 const HOWTO = isTouch
-  ? [['SKILL', 'Use your bird\'s special skill'], ['Left thumb', 'Steer. Push up to climb, pull down to dive. Walk on the ground'], ['FLAP', 'Flap (uses energy), or take off'], ['DIVE', 'Fold your wings and stoop'], ['ACT', 'Eat, drink, sleep, or pounce on a shrew'], ['VIEW', 'Switch camera'], ['Landing', 'Below 60 km/h, push up to flare, then touch down']]
-  : [['Q', 'Use your bird\'s special skill'], ['A D', 'Turn left and right'], ['W S', 'Climb (nose up) and dive (nose down)'], ['Space', 'Flap (uses energy), or take off'], ['Shift', 'Fold your wings and stoop'], ['E', 'Eat, drink, sleep, or pounce on a shrew'], ['Z', 'Sleep when perched'], ['V', 'Switch camera'], ['Esc', 'Pause, save and load'], ['Landing', 'Below 60 km/h, hold W to flare, then touch down']];
+  ? [['SKILL', 'Use your bird\'s special skill'], ['Left thumb', 'Steer. Push up to climb, pull down to dive. Walk on the ground'], ['FLAP', 'Flap (uses energy), or take off'], ['DIVE', 'Fold your wings and stoop'], ['BRAKE', 'Spread your wings and tail to slow down for landing'], ['ACT', 'Eat, drink, sleep, or pounce on a shrew'], ['VIEW', 'Switch camera'], ['Landing', 'Hold BRAKE until below 60 km/h, then touch down gently']]
+  : [['Q', 'Use your bird\'s special skill'], ['A D', 'Turn left and right'], ['W S', 'Climb (nose up) and dive (nose down)'], ['Space', 'Flap (uses energy), or take off'], ['Shift', 'Fold your wings and stoop'], ['B', 'Brake: spread your wings and tail to slow down'], ['E', 'Eat, drink, sleep, or pounce on a shrew'], ['Z', 'Sleep when perched'], ['V', 'Switch camera'], ['Esc', 'Pause, save and load'], ['Landing', 'Hold B until below 60 km/h, then touch down gently']];
 const howtoHTML = HOWTO.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('') + (isTouch ? '' : '<div><kbd>Gamepad</kbd><span>Supported too</span></div>');
 $('howto').innerHTML = howtoHTML; $('howto2').innerHTML = howtoHTML;
 
