@@ -6,15 +6,19 @@ A browser-based 3D bird-of-prey RPG set in a British valley. Play as a peregrine
 
 - `src/head.html`: page styles and HUD markup
 - `src/game.js`: all game code (Three.js)
-- `index.html`: the two above joined together. This is the file that gets published.
+- `index.html`: the two above joined together, published as the Claude artifact.
+- `docs/index.html`: the same game as a complete web page, served by GitHub Pages.
 
-To rebuild `index.html` after editing:
+To rebuild both after editing `src/`:
 
 ```sh
-{ cat src/head.html; echo '<script type="module">'; cat src/game.js; echo '</script>'; } > index.html
+./build.sh
 ```
 
-`index.html` is a page fragment, without its own `<html>`, `<head>` or `<body>` tags. It's published as a Claude artifact, which wraps it in a full page. To play it locally, put it inside a minimal HTML page and serve that page over HTTP. Three.js loads from the jsDelivr CDN.
+## Play it
+
+- GitHub Pages: https://dwillmot86.github.io/talon_BOP/ (once Pages is switched on for this repository)
+- Locally: open `docs/index.html` in a browser. It needs an internet connection to load Three.js and the fonts.
 
 ## Controls
 
