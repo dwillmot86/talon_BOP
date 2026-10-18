@@ -1,0 +1,1357 @@
+<title>Talon</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Uncial+Antiqua&family=Nunito:wght@400;600;800;900&display=swap">
+<style>
+/* Layout: full-bleed 3D valley; HUD pinned to the safe-area corners; menus are dark moss panels floating over the live world. */
+:root{
+  --night:#0f1a1c;
+  --panel:rgba(13,24,26,.76);
+  --panel-solid:#14262a;
+  --parch:#f4ecd6;
+  --muted:#b7c3b9;
+  --gold:#f0c02a;
+  --heather:#c48db3;
+  --sky:#9fd0ec;
+  --danger:#ef6a55;
+  --ok:#9ad672;
+  --line:rgba(244,236,214,.16);
+  --display:"Uncial Antiqua","Palatino Linotype",Georgia,serif;
+  --body:"Nunito","Trebuchet MS",system-ui,sans-serif;
+  --top:calc(12px + env(safe-area-inset-top,0px));
+  --bottom:calc(14px + env(safe-area-inset-bottom,0px));
+  --left:max(16px, env(safe-area-inset-left,0px));
+  --right:max(16px, env(safe-area-inset-right,0px));
+  color-scheme:dark;
+}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--night);color:var(--parch);font-family:var(--body);}
+body{padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}
+#game{position:fixed;inset:0;width:100%;height:100%;display:block;}
+[hidden]{display:none!important}
+button{font-family:var(--body);cursor:pointer;color:inherit}
+button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:800}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+
+/* ---------- HUD ---------- */
+#hud{position:fixed;inset:0;pointer-events:none;}
+#mission{position:absolute;top:var(--top);left:var(--left);width:min(330px,calc(100vw - 230px));padding:10px 14px;display:grid;gap:3px}
+#mTitle{font-family:var(--display);font-size:19px;line-height:1.15}
+#mText{font-size:13.5px;line-height:1.4;color:var(--muted)}
+#status{position:absolute;top:var(--top);right:calc(var(--right) + 52px);padding:10px 12px;display:grid;gap:7px;width:150px}
+.lvl{display:flex;justify-content:space-between;align-items:baseline;gap:6px;font-weight:800;font-size:13px}
+.lvl #lvlName{color:var(--muted);font-weight:600;font-size:12px;text-align:right}
+.bar{height:8px;border-radius:5px;background:rgba(255,255,255,.12);overflow:hidden}
+.bar i{display:block;height:100%;width:0;border-radius:inherit;transition:width .25s}
+.xp i{background:linear-gradient(90deg,#c9921a,var(--gold))}
+#mini{width:150px;height:150px;border-radius:8px;display:block}
+#pauseBtn{position:absolute;top:var(--top);right:var(--right);width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel);font-weight:900;font-size:14px;pointer-events:auto;letter-spacing:1px}
+#gauges{position:absolute;bottom:var(--bottom);left:50%;transform:translateX(-50%);display:flex;align-items:flex-end;gap:18px;padding:10px 18px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
+.g{display:grid;justify-items:center;line-height:1}
+.g b{font-size:34px;font-weight:900;font-variant-numeric:tabular-nums;min-width:2.6ch;text-align:center}
+.g.alt b{font-size:22px}
+.g small{font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:3px}
+.energy{display:grid;gap:5px;width:130px;padding-bottom:4px}
+.energy label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.energy .bar{height:10px}
+.energy i{background:linear-gradient(90deg,#5fae4a,var(--ok))}
+.energy.low i{background:linear-gradient(90deg,#b8442f,var(--danger))}
+#gauges.stoop{border-color:var(--gold);box-shadow:0 0 0 2px rgba(240,192,42,.35),0 0 30px rgba(240,192,42,.25)}
+#gauges.stoop .g:first-child b{color:var(--gold)}
+#stoopTag{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--gold);color:#2a1d00;font-weight:900;font-size:11px;letter-spacing:.16em;padding:3px 9px;border-radius:20px}
+#carry{position:absolute;bottom:calc(var(--bottom) + 84px);left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:30px;background:var(--panel);border:1px solid var(--gold);font-size:13.5px;font-weight:700;white-space:nowrap;max-width:calc(100vw - 32px);overflow:hidden;text-overflow:ellipsis}
+#carry b{color:var(--gold)}
+#toasts{position:absolute;top:calc(var(--top) + 6px);left:50%;transform:translateX(-50%);display:grid;gap:6px;justify-items:center;width:min(420px,60vw)}
+.toast{padding:8px 16px;border-radius:30px;background:var(--panel-solid);border:1px solid var(--line);font-weight:800;font-size:15px;text-align:center;animation:pop .35s ease-out}
+.toast.gold{border-color:var(--gold);color:var(--gold)}
+.toast.big{font-family:var(--display);font-size:24px;font-weight:400;padding:10px 22px;border-color:var(--gold);color:var(--gold)}
+.toast.bad{border-color:var(--danger);color:#ffd7cf}
+@keyframes pop{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+#fact{position:absolute;left:var(--left);top:calc(var(--top) + 150px);width:min(330px,calc(100vw - 32px));padding:12px 14px;border-radius:12px;background:var(--panel-solid);border:1px solid var(--heather);pointer-events:auto;animation:pop .4s ease-out}
+#fact .eyebrow{color:var(--heather)}
+#fact p{margin:5px 0 0;font-size:14px;line-height:1.45}
+#fact small{display:block;margin-top:6px;color:var(--muted);font-size:11px}
+.mk{position:absolute;left:0;top:0;will-change:transform}
+.mk>span{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;font-size:11.5px;font-weight:800;padding:22px 0 0;text-align:center;text-shadow:0 1px 3px #000}
+.mk>span::before{content:"";position:absolute;left:50%;top:0;transform:translateX(-50%);width:16px;height:16px;border-radius:50%;border:2.5px solid currentColor;box-shadow:0 0 6px rgba(0,0,0,.6)}
+.mk.prey{color:#fff}
+.mk.prey.close{color:var(--danger)}
+.mk.prey.close>span::before{width:24px;height:24px;top:-4px}
+.mk.nest{color:var(--gold)}
+.mk.nest>span::before{border-radius:4px;transform:translateX(-50%) rotate(45deg)}
+.mk.therm{color:#ffe9a8}
+.mk.therm>span::before{border-style:dashed}
+.mk.edge>span{opacity:.8}
+#flash{position:absolute;inset:0;opacity:0;transition:opacity .5s}
+#vignette{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(10,20,30,.55) 100%)}
+
+/* ---------- Touch ---------- */
+#touch{position:fixed;inset:0;pointer-events:none}
+#stickZone{position:absolute;left:0;bottom:0;width:48%;height:75%;pointer-events:auto}
+#stick{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(244,236,214,.45);background:rgba(13,24,26,.3);left:calc(var(--left) + 90px);top:calc(100% - var(--bottom) - 90px);pointer-events:none}
+#knob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(244,236,214,.8)}
+.tbtns{position:absolute;right:var(--right);bottom:var(--bottom);display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:end;pointer-events:auto}
+.tb{width:76px;height:76px;border-radius:50%;border:2px solid rgba(244,236,214,.55);background:rgba(13,24,26,.55);font-weight:900;font-size:13px;letter-spacing:.06em;touch-action:none}
+.tb.big{width:96px;height:96px;font-size:15px;border-color:var(--ok)}
+.tb.dive{border-color:var(--gold)}
+.tb.small{width:56px;height:56px;font-size:11px}
+.tb.on{background:rgba(244,236,214,.35)}
+body.touch #gauges{bottom:auto;top:calc(var(--top));left:50%;padding:6px 12px;gap:12px}
+body.touch .g b{font-size:24px}
+body.touch .g.alt b{font-size:17px}
+body.touch .energy{width:90px}
+body.touch #toasts{top:calc(var(--top) + 70px)}
+body.touch #carry{bottom:auto;top:calc(var(--top) + 64px)}
+body.touch #status{width:112px;padding:8px}
+body.touch #mini{width:112px;height:112px}
+body.touch #mission{width:min(260px,32vw);padding:8px 10px}
+body.touch #mTitle{font-size:15px}
+body.touch #mText{font-size:12px}
+body.touch #fact{top:auto;bottom:calc(var(--bottom) + 10px);left:50%;transform:translateX(-50%);width:min(340px,40vw)}
+#rotate{position:fixed;left:50%;bottom:calc(var(--bottom) + 140px);transform:translateX(-50%);padding:8px 14px;border-radius:20px;background:var(--panel-solid);border:1px solid var(--line);font-size:13px;font-weight:700;display:none}
+@media (orientation:portrait) and (pointer:coarse){ #rotate{display:block} #mission{width:calc(100vw - 180px)} body.touch #gauges{top:auto;bottom:calc(var(--bottom) + 200px)} }
+
+/* ---------- Overlays ---------- */
+.overlay{position:fixed;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;background:linear-gradient(180deg,rgba(10,20,22,.15),rgba(10,20,22,.72) 60%,rgba(10,20,22,.9));display:flex;justify-content:center;padding:calc(24px + env(safe-area-inset-top,0px)) var(--right) calc(24px + env(safe-area-inset-bottom,0px)) var(--left);box-sizing:border-box}
+.sheet{width:min(900px,100%);display:grid;gap:20px;align-content:start;margin:auto 0}
+.brand{display:grid;gap:2px}
+.brand h1{font-family:var(--display);font-weight:400;font-size:clamp(54px,11vw,104px);line-height:.95;margin:0;color:var(--parch);text-shadow:0 4px 30px rgba(0,0,0,.45);letter-spacing:.01em}
+.brand h1 em{font-style:normal;color:var(--gold)}
+.brand p{margin:0;font-size:clamp(15px,2.2vw,19px);font-weight:600;color:var(--parch);opacity:.92;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.sheet h2{font-family:var(--display);font-weight:400;font-size:22px;margin:0}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.card{position:relative;text-align:left;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--panel);display:grid;gap:8px;min-width:0}
+.card h3{margin:0;font-family:var(--display);font-weight:400;font-size:19px}
+.card .hab{font-size:12.5px;color:var(--muted);margin:-4px 0 0}
+.card .blurb{font-size:13px;line-height:1.4;margin:0}
+.card.sel{border:2px solid var(--gold);padding:13px;box-shadow:0 0 0 4px rgba(240,192,42,.15)}
+.card.locked{opacity:.62;cursor:default}
+.card .lock{justify-self:start;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:2px 8px}
+.card.sel .lock{color:#2a1d00;background:var(--gold);border-color:var(--gold)}
+.stats{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;align-items:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.pips{display:flex;gap:3px}
+.pips i{width:14px;height:6px;border-radius:2px;background:rgba(255,255,255,.14)}
+.pips i.f{background:var(--gold)}
+.howto{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 18px;padding:14px 16px;font-size:13.5px}
+.howto div{display:flex;gap:10px;align-items:baseline}
+kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:rgba(255,255,255,.08);white-space:nowrap}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.cta{font-family:var(--display);font-size:24px;padding:12px 34px;border-radius:40px;border:0;background:var(--gold);color:#271b00;box-shadow:0 6px 24px rgba(240,192,42,.35)}
+.ghost{font-weight:800;font-size:14px;padding:10px 18px;border-radius:30px;border:1px solid var(--line);background:var(--panel)}
+.ghost.on{border-color:var(--gold);color:var(--gold)}
+.note{font-size:12.5px;color:var(--muted);margin:0}
+.skills{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.skill{padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);display:grid;gap:3px}
+.skill b{font-size:14px}
+.skill span{font-size:12.5px;color:var(--muted);line-height:1.35}
+.skill small{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.skill.got{border-color:var(--gold)}
+.skill.got small{color:var(--gold)}
+.statgrid{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:13.5px}
+.statgrid b{font-variant-numeric:tabular-nums;color:var(--gold)}
+#loading{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--display);font-size:22px;color:var(--parch)}
+</style>
+
+<canvas id="game"></canvas>
+<div id="loading">Building the valley…</div>
+
+<div id="hud" hidden>
+  <div id="mission" class="panel">
+    <div class="eyebrow">Quest <span id="mNum">1 of 7</span></div>
+    <div id="mTitle"></div>
+    <div id="mText"></div>
+  </div>
+  <div id="status" class="panel">
+    <div class="lvl"><span id="lvlNum">Lv 1</span><span id="lvlName">Fledgling</span></div>
+    <div class="bar xp"><i id="xpBar"></i></div>
+    <canvas id="mini" width="150" height="150"></canvas>
+  </div>
+  <button id="pauseBtn" aria-label="Pause">II</button>
+  <div id="vignette"></div>
+  <div id="markers">
+    <div id="mkPrey" class="mk prey" hidden><span></span></div>
+    <div id="mkNest" class="mk nest" hidden><span>Eyrie</span></div>
+    <div id="mkTherm" class="mk therm" hidden><span>Thermal</span></div>
+  </div>
+  <div id="gauges">
+    <div class="g"><b id="spd">0</b><small>km/h</small></div>
+    <div class="g alt"><b id="alt">0</b><small>metres up</small></div>
+    <div class="energy" id="energy"><label>Energy</label><div class="bar"><i id="enBar"></i></div></div>
+    <span id="stoopTag" hidden>STOOP</span>
+  </div>
+  <div id="carry" hidden></div>
+  <div id="toasts"></div>
+  <div id="fact" hidden><div class="eyebrow">Falcon fact</div><p id="factText"></p><small>Tap to close</small></div>
+  <div id="rotate">Turn your phone sideways for the best view</div>
+  <div id="flash"></div>
+</div>
+
+<div id="touch" hidden>
+  <div id="stickZone"></div>
+  <div id="stick"><div id="knob"></div></div>
+  <div class="tbtns">
+    <button id="bEat" class="tb small" hidden>EAT</button>
+    <button id="bCam" class="tb small">VIEW</button>
+    <button id="bDive" class="tb dive">DIVE</button>
+    <button id="bFlap" class="tb big">FLAP</button>
+  </div>
+</div>
+
+<div id="menu" class="overlay" hidden>
+  <div class="sheet">
+    <div class="brand">
+      <h1>Tal<em>o</em>n</h1>
+      <p>Hunt, train and rule the wild places of Britain as a bird of prey.</p>
+    </div>
+    <h2>Choose your bird</h2>
+    <div class="cards" id="cards"></div>
+    <div class="howto panel" id="howto"></div>
+    <div class="row">
+      <button id="startBtn" class="cta">Take flight</button>
+      <p class="note">Demo: the peregrine falcon in one valley. Progress is saved in this browser.</p>
+    </div>
+  </div>
+</div>
+
+<div id="pause" class="overlay" hidden>
+  <div class="sheet">
+    <div class="brand"><h1 style="font-size:clamp(40px,8vw,64px)">Paused</h1></div>
+    <div class="row">
+      <button id="resumeBtn" class="cta">Resume</button>
+      <button id="invertBtn" class="ghost">Invert up/down: off</button>
+      <button id="soundBtn" class="ghost">Sound: on</button>
+      <button id="camBtn" class="ghost">View: behind</button>
+    </div>
+    <h2>Your peregrine</h2>
+    <div class="statgrid panel" id="statgrid" style="padding:12px 16px"></div>
+    <h2>Skills</h2>
+    <div class="skills" id="skills"></div>
+    <h2>Controls</h2>
+    <div class="howto panel" id="howto2"></div>
+    <div class="row">
+      <button id="menuBtn" class="ghost">Back to bird select</button>
+      <button id="resetBtn" class="ghost">Start this bird again</button>
+    </div>
+  </div>
+</div>
+
+<div id="complete" class="overlay" hidden>
+  <div class="sheet">
+    <div class="brand">
+      <h1 style="font-size:clamp(40px,8vw,72px)">Lord of the <em>Valley</em></h1>
+      <p>You have mastered the peregrine's valley. That's the end of the demo.</p>
+    </div>
+    <div class="panel" style="padding:14px 16px;font-size:14.5px;line-height:1.5">
+      Coming next could be the golden eagle in the Highlands, the barn owl hunting by sound at night, or the osprey fishing the lochs. Each would have its own skills, prey and habitat to master.
+    </div>
+    <div class="row"><button id="keepBtn" class="cta">Keep flying</button></div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const V3 = THREE.Vector3;
+const $ = id => document.getElementById(id);
+const isTouch = matchMedia('(pointer: coarse)').matches;
+if (isTouch) document.body.classList.add('touch');
+
+// ---------- helpers ----------
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const damp = (a, b, l, dt) => lerp(a, b, 1 - Math.exp(-l * dt));
+const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+function rng(seed) { return () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rand = rng(20261018);
+const perm = new Uint8Array(512);
+{ const p = [...Array(256).keys()]; for (let i = 255; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; } for (let i = 0; i < 512; i++) perm[i] = p[i & 255]; }
+const hash = (i, j) => perm[(perm[i & 255] + j) & 255] / 255;
+function vnoise(x, z) {
+  const xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
+  return lerp(lerp(hash(xi, zi), hash(xi + 1, zi), u), lerp(hash(xi, zi + 1), hash(xi + 1, zi + 1), u), v);
+}
+function fbm(x, z, o = 5) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < o; i++) { s += a * vnoise(x * f, z * f); n += a; a *= 0.5; f *= 2.03; } return s / n; }
+
+// ---------- world shape ----------
+const WORLD = 3200, LIMIT = 1050;
+const riverX = z => 160 * Math.sin(z * 0.0026) + 60 * Math.sin(z * 0.007 + 1.3);
+const CLIFF = 330;
+const VZ = 260, VX = riverX(260) + 150;
+function heightAt(x, z) {
+  const rx = riverX(z), d = Math.abs(x - rx);
+  const n = fbm(x * 0.0035 + 10, z * 0.0035 - 5);
+  let h = -6 + 14 * smooth(8, 60, d) + Math.pow(n, 1.6) * 230 * smooth(60, 520, d);
+  const w = rx - x;
+  h += smooth(CLIFF - 25, CLIFF + 15, w) * (110 + 60 * fbm(z * 0.01, 3.3, 3));
+  const r = Math.hypot(x, z);
+  h += smooth(850, 1250, r) * 260 * fbm(x * 0.004, z * 0.004, 3);
+  const dv = Math.hypot(x - VX, z - VZ);
+  h = lerp(h, 9, smooth(140, 60, dv));
+  return h;
+}
+const groundAt = (x, z) => Math.max(heightAt(x, z), 0);
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ canvas: $('game'), antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, isTouch ? 1.5 : 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = !isTouch;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+const HORIZON = new THREE.Color(0xd3e9ef);
+scene.fog = new THREE.Fog(HORIZON, 260, 1650);
+const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 6000);
+scene.add(camera);
+
+const SUN_DIR = new V3(-0.45, 0.62, 0.35).normalize();
+scene.add(new THREE.HemisphereLight(0xc4e4ff, 0x6a8a48, 1.05));
+const sun = new THREE.DirectionalLight(0xfff0d2, 2.1);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 700 });
+sun.shadow.bias = -0.0008;
+scene.add(sun, sun.target);
+
+const sky = new THREE.Mesh(new THREE.SphereGeometry(4500, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { top: { value: new THREE.Color(0x3f8fd4) }, horizon: { value: HORIZON }, sunDir: { value: SUN_DIR } },
+  vertexShader: `varying vec3 vW; void main(){ vW = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; varying vec3 vW;
+    void main(){ float h = clamp(vW.y, 0.0, 1.0); vec3 c = mix(horizon, top, pow(h, 0.5));
+      float s = max(dot(normalize(vW), sunDir), 0.0);
+      c += vec3(1.0,0.9,0.7) * pow(s, 400.0) * 2.0 + vec3(1.0,0.85,0.6) * pow(s, 10.0) * 0.18;
+      gl_FragColor = vec4(c, 1.0);
+      #include <colorspace_fragment>
+    }`
+}));
+sky.renderOrder = -1;
+scene.add(sky);
+
+const grad = new THREE.DataTexture(new Uint8Array([105, 180, 255]), 3, 1, THREE.RedFormat);
+grad.minFilter = grad.magFilter = THREE.NearestFilter; grad.needsUpdate = true;
+const toon = (c, extra = {}) => new THREE.MeshToonMaterial({ color: c, gradientMap: grad, ...extra });
+
+// ---------- terrain ----------
+const SEG = 260;
+const tGeo = new THREE.PlaneGeometry(WORLD, WORLD, SEG, SEG);
+tGeo.rotateX(-Math.PI / 2);
+{
+  const P = tGeo.attributes.position;
+  for (let i = 0; i < P.count; i++) P.setY(i, heightAt(P.getX(i), P.getZ(i)));
+  tGeo.computeVertexNormals();
+  const N = tGeo.attributes.normal, cols = new Float32Array(P.count * 3), c = new THREE.Color();
+  for (let i = 0; i < P.count; i++) { terrainColor(P.getX(i), P.getZ(i), P.getY(i), N.getY(i), c); cols.set([c.r, c.g, c.b], i * 3); }
+  tGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+}
+function terrainColor(x, z, h, ny, out) {
+  const C = terrainColor.C || (terrainColor.C = {
+    bed: new THREE.Color(0x8f8a64), sand: new THREE.Color(0xd2c08e), grass: new THREE.Color(0x5e9a42),
+    fields: [0x86b84e, 0x9ccb5c, 0x72a845, 0xdcc94a, 0xa9cc6c, 0x8fbf55].map(v => new THREE.Color(v)),
+    moor: new THREE.Color(0x93708c), brown: new THREE.Color(0x7f6f4c), rock: new THREE.Color(0x918a7e), snow: new THREE.Color(0xf0f4f5)
+  });
+  if (h < 1.3) return out.copy(h < -1.5 ? C.bed : C.sand);
+  if (ny < 0.74) return out.copy(C.rock).lerp(C.brown, fbm(x * .02, z * .02, 2) * .45);
+  if (h < 45) return out.copy(C.fields[Math.floor(hash(Math.floor((x + 4000) / 70), Math.floor((z + 4000) / 55)) * 5.99)]);
+  if (h < 110) return out.copy(C.grass).lerp(C.fields[2], fbm(x * .01, z * .01, 2) * .6);
+  if (h < 240) return out.copy(C.grass).lerp(fbm(x * .008 + 4, z * .008, 2) > 0.5 ? C.moor : C.brown, smooth(110, 165, h));
+  return out.copy(C.rock).lerp(C.snow, smooth(250, 320, h));
+}
+const terrain = new THREE.Mesh(tGeo, toon(0xffffff, { vertexColors: true }));
+terrain.receiveShadow = true;
+scene.add(terrain);
+
+const water = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD).rotateX(-Math.PI / 2), toon(0x3d9cc6, { transparent: true, opacity: 0.84 }));
+water.position.y = 0;
+scene.add(water);
+
+const dummy = new THREE.Object3D();
+const slopeAt = (x, z) => { const e = 3; return new V3(heightAt(x - e, z) - heightAt(x + e, z), 2 * e, heightAt(x, z - e) - heightAt(x, z + e)).normalize().y; };
+
+// trees
+{
+  const spots = [];
+  for (let i = 0; i < 9000 && spots.length < 2100; i++) {
+    const x = (rand() - .5) * 2200, z = (rand() - .5) * 2200, h = heightAt(x, z);
+    if (h < 3 || h > 175) continue;
+    if (Math.hypot(x - VX, z - VZ) < 110) continue;
+    const wood = fbm(x * 0.006 + 30, z * 0.006 - 7, 3);
+    if (wood < 0.56 && rand() > 0.025) continue;
+    if (slopeAt(x, z) < 0.8) continue;
+    spots.push([x, h, z, h > 95 || (wood > 0.66 && rand() < .5) ? 1 : 0]);
+  }
+  const broad = spots.filter(s => !s[3]), pine = spots.filter(s => s[3]);
+  const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 1, 6).translate(0, 0.5, 0);
+  const trunks = new THREE.InstancedMesh(trunkGeo, toon(0x6b4f35), spots.length);
+  const canopy = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), toon(0xffffff), broad.length);
+  const cones = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 7).translate(0, 0.5, 0), toon(0xffffff), pine.length);
+  const col = new THREE.Color();
+  spots.forEach((s, i) => {
+    const sz = 0.8 + rand() * 0.7;
+    dummy.position.set(s[0], s[1] - 0.5, s[2]); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.set(sz, (s[3] ? 4 : 5) * sz, sz); dummy.updateMatrix();
+    trunks.setMatrixAt(i, dummy.matrix);
+  });
+  broad.forEach((s, i) => {
+    const sz = 0.8 + rand() * 0.7;
+    dummy.position.set(s[0], s[1] + 5.5 * sz + 2.5, s[2]); dummy.rotation.set(rand(), rand() * 6, rand()); dummy.scale.set(5 * sz, 4.4 * sz, 5 * sz); dummy.updateMatrix();
+    canopy.setMatrixAt(i, dummy.matrix);
+    canopy.setColorAt(i, col.setHSL(0.24 + rand() * 0.07, 0.45 + rand() * .15, 0.30 + rand() * 0.1));
+  });
+  pine.forEach((s, i) => {
+    const sz = 0.8 + rand() * 0.6;
+    dummy.position.set(s[0], s[1] + 2, s[2]); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.set(3.2 * sz, 13 * sz, 3.2 * sz); dummy.updateMatrix();
+    cones.setMatrixAt(i, dummy.matrix);
+    cones.setColorAt(i, col.setHSL(0.36 + rand() * 0.05, 0.35, 0.22 + rand() * 0.06));
+  });
+  for (const m of [trunks, canopy, cones]) { m.castShadow = m.receiveShadow = true; scene.add(m); }
+}
+
+// sheep
+{
+  const spots = [];
+  for (let i = 0; i < 4000 && spots.length < 160; i++) {
+    const x = (rand() - .5) * 1800, z = (rand() - .5) * 1800, h = heightAt(x, z);
+    if (h < 4 || h > 70 || Math.hypot(x - VX, z - VZ) < 120 || slopeAt(x, z) < 0.9) continue;
+    if (fbm(x * 0.006 + 30, z * 0.006 - 7, 3) > 0.5) continue;
+    const n = 2 + Math.floor(rand() * 4);
+    for (let k = 0; k < n; k++) spots.push([x + (rand() - .5) * 16, z + (rand() - .5) * 16]);
+  }
+  const bodies = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), toon(0xf6f3ea), spots.length);
+  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.55, 0.7), toon(0x26221f), spots.length);
+  const e = new THREE.Euler(), q = new THREE.Quaternion(), off = new V3();
+  spots.forEach(([x, z], i) => {
+    const h = heightAt(x, z), yaw = rand() * 6.28;
+    dummy.position.set(x, h + 0.9, z); dummy.rotation.set(0, yaw, 0); dummy.scale.set(0.75, 0.65, 1.0); dummy.updateMatrix(); bodies.setMatrixAt(i, dummy.matrix);
+    off.set(0, 0.15, 1.0).applyEuler(e.set(0, yaw, 0));
+    dummy.position.set(x + off.x, h + 0.75, z + off.z); dummy.rotation.set(0.5, yaw, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); heads.setMatrixAt(i, dummy.matrix);
+  });
+  bodies.castShadow = heads.castShadow = true;
+  scene.add(bodies, heads);
+}
+
+// village with a church
+{
+  const stone = toon(0xdcd2bb), white = toon(0xefe9dc), slate = toon(0x596072), red = toon(0x9a5a45);
+  const box = new THREE.BoxGeometry(1, 1, 1), roof = new THREE.ConeGeometry(0.75, 1, 4).rotateY(Math.PI / 4);
+  const g = new THREE.Group();
+  const house = (x, z, w, d, hgt, rot, wall, rf) => {
+    const h = heightAt(VX + x, VZ + z), grp = new THREE.Group();
+    const b = new THREE.Mesh(box, wall); b.scale.set(w, hgt, d); b.position.y = hgt / 2; grp.add(b);
+    const r = new THREE.Mesh(roof, rf); r.scale.set(w * 1.38, hgt * 0.75, d * 1.38); r.position.y = hgt + hgt * 0.37; grp.add(r);
+    grp.position.set(VX + x, h - 0.3, VZ + z); grp.rotation.y = rot; g.add(grp);
+  };
+  for (let i = 0; i < 14; i++) {
+    const a = i / 14 * 6.28 + rand() * .3, r = 32 + rand() * 40;
+    house(Math.cos(a) * r, Math.sin(a) * r, 7 + rand() * 4, 9 + rand() * 4, 5 + rand() * 2, -a, rand() < .5 ? stone : white, rand() < .7 ? slate : red);
+  }
+  const ch = new THREE.Group(), h = heightAt(VX, VZ);
+  const nave = new THREE.Mesh(box, stone); nave.scale.set(9, 9, 22); nave.position.y = 4.5; ch.add(nave);
+  const nr = new THREE.Mesh(new THREE.CylinderGeometry(0, 1, 1, 4, 1).rotateY(Math.PI / 4), slate); nr.scale.set(9 * .72, 5, 22 * .72); nr.position.y = 11.5; ch.add(nr);
+  const tower = new THREE.Mesh(box, stone); tower.scale.set(7, 22, 7); tower.position.set(0, 11, -13); ch.add(tower);
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(4.6, 18, 4).rotateY(Math.PI / 4), slate); spire.position.set(0, 31, -13); ch.add(spire);
+  ch.position.set(VX, h - 0.3, VZ); ch.rotation.y = 0.4; g.add(ch);
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  scene.add(g);
+}
+
+// clouds
+const clouds = [];
+{
+  const geo = new THREE.IcosahedronGeometry(1, 1), mat = toon(0xffffff, { emissive: 0x7d8a96, emissiveIntensity: 0.35 });
+  for (let i = 0; i < 34; i++) {
+    const c = new THREE.Group(), n = 4 + Math.floor(rand() * 5);
+    for (let k = 0; k < n; k++) {
+      const m = new THREE.Mesh(geo, mat), s = 14 + rand() * 18;
+      m.scale.set(s * 1.4, s * 0.8, s); m.position.set((k - n / 2) * 16 + rand() * 8, rand() * 8, (rand() - .5) * 20); c.add(m);
+    }
+    c.position.set((rand() - .5) * 2600, 420 + rand() * 120, (rand() - .5) * 2600);
+    scene.add(c); clouds.push(c);
+  }
+}
+
+// ---------- birds ----------
+// Birds are low-poly: every triangle is flat-shaded and coloured on its own.
+const sphereGeo = new THREE.IcosahedronGeometry(0.5, 0);
+const birdMat = toon(0xffffff, { vertexColors: true, side: THREE.DoubleSide });
+const fv = new V3(), fn = new V3(), fc = new V3();
+function facet(geo, colorFn) {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  g.computeVertexNormals();
+  const P = g.attributes.position, cols = new Float32Array(P.count * 3), c = new THREE.Color();
+  for (let i = 0; i < P.count; i += 3) {
+    fn.fromBufferAttribute(g.attributes.normal, i);
+    fc.set(0, 0, 0); for (let k = 0; k < 3; k++) fc.add(fv.fromBufferAttribute(P, i + k)); fc.multiplyScalar(1 / 3);
+    c.setHex(colorFn(fn, fc));
+    for (let k = 0; k < 3; k++) cols.set([c.r, c.g, c.b], (i + k) * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  return g;
+}
+function bladeGeo(pts, top, under, edge) {
+  const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.022, bevelEnabled: false }).rotateX(Math.PI / 2);
+  return facet(g, n => n.y > 0.5 ? top : n.y < -0.5 ? under : edge);
+}
+function birdGeos(o) {
+  if (o._geo) return o._geo;
+  const [bx, by, bz] = o.body, r = o.headR;
+  const body = facet(new THREE.LatheGeometry(o.profile.map(([a, b]) => new THREE.Vector2(a, b)), 6).rotateX(Math.PI / 2).scale(bx, by, bz),
+    (n, m) => n.y < -0.3 && m.z > -bz * 0.35 ? o.belly : o.back);
+  const head = facet(new THREE.IcosahedronGeometry(r, 0).scale(...(o.headShape || [1, 0.92, 1.18])),
+    (n, m) => o.cheek && n.y < -0.15 && m.z > -r * 0.2 ? o.cheek : o.head);
+  const bl = o.beakLen || 0.95;
+  const beak = facet(new THREE.ConeGeometry(r * .34, r * bl, 4).rotateX(Math.PI / 2), () => o.beak);
+  const cere = o.cere ? facet(new THREE.OctahedronGeometry(r * .26, 0).scale(1, .8, .9), () => o.cere) : null;
+  const malar = o.malar ? facet(new THREE.OctahedronGeometry(r * .3, 0).scale(.45, 1.5, .7), () => o.malar) : null;
+  const eye = facet(new THREE.OctahedronGeometry(r * .2, 0), () => 0x0d0d0d);
+  const ring = o.eyeRing ? facet(new THREE.OctahedronGeometry(r * .29, 0), () => o.eyeRing) : null;
+  const neck = o.neck ? facet(new THREE.OctahedronGeometry(r * .42, 0).scale(1, 1.3, 1), () => o.neck) : null;
+  const patch = o.patch ? facet(new THREE.OctahedronGeometry(r * .4, 0).scale(.7, .8, 1.9), () => o.patch) : null;
+  const tail = bladeGeo(o.tail, o.wing, o.under, o.tip);
+  const inner = bladeGeo(o.inner, o.wing, o.under, o.tip);
+  const outer = bladeGeo(o.outer, o.tip, o.under, o.tip);
+  const foot = o.feet ? facet(new THREE.OctahedronGeometry(1, 0).scale(.07, .09, .11), () => o.feet) : null;
+  return (o._geo = { body, head, beak, cere, malar, eye, ring, neck, patch, tail, inner, outer, foot });
+}
+function makeBird(o) {
+  const G = birdGeos(o), g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
+  const [bx, by, bz] = o.body, r = o.headR;
+  g.add(M(G.body));
+  const head = new THREE.Group(); head.position.set(0, o.headY, o.headZ); g.add(head);
+  head.add(M(G.head));
+  const hz = (o.headShape || [1, 1, 1.18])[2], bl = o.beakLen || 0.95;
+  const beak = M(G.beak); beak.position.set(0, -r * .22, r * (hz * .5 + bl * .42)); beak.rotation.x = 0.5; head.add(beak);
+  if (G.cere) { const c = M(G.cere); c.position.set(0, -r * .12, r * hz * .9); head.add(c); }
+  for (const s of [-1, 1]) {
+    const e = M(G.eye); e.position.set(s * r * .74, r * .2, r * .5); head.add(e);
+    e.position.z *= hz / 1.18;
+    if (G.ring) { const ring = M(G.ring); ring.position.copy(e.position).multiplyScalar(0.93); head.add(ring); }
+    if (G.malar) { const ml = M(G.malar); ml.position.set(s * r * .62, -r * .42, r * .38); ml.rotation.x = -0.3; head.add(ml); }
+    if (G.neck) { const nk = M(G.neck); nk.position.set(s * r * .62, -r * .85, -r * .1); head.add(nk); }
+    if (G.patch) { const pt = M(G.patch); pt.position.set(s * r * .66, r * .12, r * .05); head.add(pt); }
+  }
+  const tail = M(G.tail); tail.position.set(0, 0, -bz * .4); g.add(tail);
+  const wings = [];
+  const mkWing = parent => {
+    const root = new THREE.Group(); root.position.set(bx * .3, by * .22, o.wingZ); parent.add(root);
+    root.add(M(G.inner));
+    const elbow = new THREE.Group(); elbow.position.x = o.span; root.add(elbow);
+    elbow.add(M(G.outer));
+    wings.push({ root, elbow });
+  };
+  mkWing(g);
+  const mirror = new THREE.Group(); mirror.scale.x = -1; g.add(mirror); mkWing(mirror);
+  let feet = null;
+  if (G.foot) {
+    feet = new THREE.Group();
+    for (const s of [-1, 1]) { const f = M(G.foot); f.position.set(s * .06, -by * .5, .02); feet.add(f); }
+    feet.visible = false; g.add(feet);
+  }
+  g.scale.setScalar(o.scale);
+  g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return { group: g, wings, head, feet, scale: o.scale };
+}
+function poseWings(b, flap, tuck, droop = 0) {
+  for (const w of b.wings) {
+    w.root.rotation.z = flap * (1 - tuck) - tuck * 0.12 - droop;
+    w.root.rotation.y = tuck * 1.0;
+    w.elbow.rotation.z = -flap * 0.4 * (1 - tuck) - droop * 0.5;
+    w.elbow.rotation.y = tuck * 1.55;
+  }
+}
+const LOOK = {
+  falcon: { scale: 1.5, body: [.25, .23, 1.05], headR: .13, headY: .085, headZ: .56, wingZ: .14, span: .46,
+    profile: [[0, -.5], [.1, -.36], [.3, -.1], [.48, .16], [.42, .34], [.24, .46], [0, .5]],
+    headShape: [.82, .82, 1.32], beakLen: 1.4, cere: 0xf0c02a, malar: 0x1c2027,
+    inner: [[0, .13], [.46, .05], [.46, -.12], [.36, -.16], [.27, -.13], [.18, -.17], [.09, -.14], [0, -.18]],
+    outer: [[0, .05], [.36, -.04], [.78, -.3], [.62, -.25], [.57, -.3], [.47, -.23], [.41, -.28], [.3, -.2], [.23, -.24], [.12, -.16], [0, -.13]],
+    tail: [[-.05, 0], [-.09, -.38], [-.05, -.45], [-.02, -.4], [0, -.46], [.02, -.4], [.05, -.45], [.09, -.38], [.05, 0]],
+    back: 0x52627a, belly: 0xf1e7d1, head: 0x262b34, wing: 0x5a6a82, tip: 0x2f3846, under: 0xd9d2c2, beak: 0x7d8a9e, eyeRing: 0xf0c02a, cheek: 0xf1e7d1, feet: 0xf0c02a },
+  pigeon: { scale: 1.35, body: [.26, .26, .64], headR: .1, headY: .11, headZ: .37, wingZ: .06, span: .3,
+    profile: [[0, -.5], [.2, -.3], [.5, .05], [.44, .32], [0, .5]],
+    inner: [[0, .12], [.3, .12], [.3, -.12], [.2, -.15], [.1, -.12], [0, -.14]],
+    outer: [[0, .12], [.32, .04], [.38, -.06], [.31, -.09], [.28, -.15], [.2, -.11], [.15, -.16], [.08, -.11], [0, -.12]],
+    tail: [[-.07, 0], [-.1, -.28], [-.04, -.24], [0, -.3], [.04, -.24], [.1, -.28], [.07, 0]],
+    back: 0x8b93a3, belly: 0xb8a2ae, head: 0x8b93a3, wing: 0x9aa2b0, tip: 0x3d4048, under: 0xc9cdd6, beak: 0xe8c070, neck: 0xffffff },
+  teal: { scale: 1.25, body: [.26, .23, .64], headR: .1, headY: .1, headZ: .38, wingZ: .06, span: .3,
+    profile: [[0, -.5], [.22, -.3], [.5, .02], [.46, .3], [0, .5]],
+    inner: [[0, .1], [.3, .07], [.3, -.08], [.18, -.11], [0, -.1]],
+    outer: [[0, .07], [.36, 0], [.44, -.07], [.33, -.06], [.28, -.1], [.16, -.07], [0, -.08]],
+    tail: [[-.06, 0], [-.07, -.18], [0, -.22], [.07, -.18], [.06, 0]],
+    back: 0x8d8f8a, belly: 0xdcd2bf, head: 0x8a3b22, wing: 0x7d7f78, tip: 0x2c6e52, under: 0xcfc8b8, beak: 0x333333, patch: 0x2d7a4a },
+};
+const PREY = {
+  pigeon: { name: 'Wood pigeon', xp: 40, speed: 15, flee: 23, alert: 45, feathers: [0x9aa2b0, 0xb8a2ae, 0xe9e9ee] },
+  teal: { name: 'Teal', xp: 90, speed: 20, flee: 30, alert: 60, feathers: [0x8d8f8a, 0xdcd2bf, 0x2c6e52] },
+};
+
+// ---------- eyrie ----------
+const EZ = -180, EX = riverX(EZ) - CLIFF - 22, EY = heightAt(EX, EZ);
+const EYRIE = new V3(EX, EY, EZ);
+const chicks = [];
+let chickHop = 0;
+{
+  const g = new THREE.Group(); g.position.copy(EYRIE);
+  const nest = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.6, 6, 14).rotateX(Math.PI / 2), toon(0x7a5a3a)); nest.position.y = 0.4; g.add(nest);
+  const fill = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.2, 0.5, 12), toon(0x5a4129)); fill.position.y = 0.3; g.add(fill);
+  const rockG = new THREE.DodecahedronGeometry(1, 0), rockM = toon(0x8f887c);
+  for (let i = 0; i < 7; i++) { const r = new THREE.Mesh(rockG, rockM), a = i / 7 * 6.28; r.scale.setScalar(1 + rand() * 1.6); r.position.set(Math.cos(a) * 4.2, 0.3, Math.sin(a) * 4.2); g.add(r); }
+  const fluff = toon(0xfbf8f1), beakM = toon(0x30343b), eyeM = toon(0x0d0d0d);
+  for (let i = 0; i < 3; i++) {
+    const c = new THREE.Group(); c.position.set((i - 1) * 0.75, 0.7, (i % 2) * 0.4 - 0.2); c.rotation.y = Math.PI / 2 + (i - 1) * 0.4;
+    const b = new THREE.Mesh(sphereGeo, fluff); b.scale.set(.75, .7, .75); c.add(b);
+    const hd = new THREE.Group(); hd.position.set(0, .5, .18); c.add(hd);
+    const hm = new THREE.Mesh(sphereGeo, fluff); hm.scale.setScalar(.45); hd.add(hm);
+    const bk = new THREE.Mesh(new THREE.ConeGeometry(.06, .16, 6).rotateX(Math.PI / 2), beakM); bk.position.set(0, -.03, .24); hd.add(bk);
+    for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(.05, 6, 5), eyeM); e.position.set(s * .13, .06, .16); hd.add(e); }
+    g.add(c); chicks.push({ g: c, hd, ph: i * 1.7 });
+  }
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  g.scale.setScalar(1.3);
+  scene.add(g);
+}
+const beacon = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 340, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xf0c02a, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
+beacon.position.set(EX, EY + 170, EZ); beacon.visible = false; scene.add(beacon);
+
+// ---------- thermals ----------
+const THERMALS = [
+  [EX + 160, EZ + 90], [riverX(-520) + 260, -520], [riverX(330) + 360, 330], [riverX(680) - 170, 680], [riverX(-820) + 120, -820], [riverX(60) - 210, 60]
+].map(([x, z]) => ({ x, z, r: 42, lift: 7, top: 560, base: groundAt(x, z) }));
+const MOTES = 140;
+const moteGeo = new THREE.BufferGeometry();
+const motePos = new Float32Array(THERMALS.length * MOTES * 3), moteData = [];
+THERMALS.forEach((t, ti) => { for (let i = 0; i < MOTES; i++) moteData.push({ t, a: rand() * 6.28, r: Math.sqrt(rand()) * t.r, y: t.base + rand() * (t.top - t.base), s: 4 + rand() * 4 }); });
+moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
+const motes = new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: 0xffeab0, size: 1.8, transparent: true, opacity: 0.65, depthWrite: false }));
+motes.frustumCulled = false;
+scene.add(motes);
+function updateThermals(dt) {
+  moteData.forEach((m, i) => {
+    m.y += m.s * dt; m.a += dt * 0.7;
+    if (m.y > m.t.top) m.y = m.t.base + 2;
+    const rr = m.r * (0.6 + 0.4 * (m.y - m.t.base) / (m.t.top - m.t.base));
+    motePos[i * 3] = m.t.x + Math.cos(m.a) * rr; motePos[i * 3 + 1] = m.y; motePos[i * 3 + 2] = m.t.z + Math.sin(m.a) * rr;
+  });
+  moteGeo.attributes.position.needsUpdate = true;
+}
+
+// ---------- save / progress ----------
+const SAVE_KEY = 'talon-peregrine-v1';
+const blankStats = () => ({ pigeon: 0, teal: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0 });
+let save = { xp: 0, mission: 0, stats: blankStats(), invert: false, muted: false, done: false };
+try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) save = { ...save, ...s, stats: { ...blankStats(), ...s.stats } }; } catch (e) { }
+const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { } };
+const stats = () => save.stats;
+
+const LEVELS = [
+  { xp: 0, name: 'Fledgling' }, { xp: 120, name: 'Juvenile', skill: 'keen' }, { xp: 320, name: 'Hunter', skill: 'wings' },
+  { xp: 600, name: 'Sky Master', skill: 'arrow' }, { xp: 950, name: 'Lord of the Valley', skill: 'grip' }
+];
+const SKILLS = {
+  keen: { name: 'Keen Eyes', desc: 'Spot prey from 450 m away instead of 250 m.' },
+  wings: { name: 'Strong Wings', desc: 'Flapping is 30% stronger and you hold more energy.' },
+  arrow: { name: 'Living Arrow', desc: 'A tighter tuck raises your top stoop speed to about 390 km/h.' },
+  grip: { name: 'Iron Grip', desc: 'Your talons reach further, so catches are easier.' },
+};
+const levelIdx = () => { let l = 0; LEVELS.forEach((L, i) => { if (save.xp >= L.xp) l = i; }); return l; };
+const has = k => LEVELS.slice(0, levelIdx() + 1).some(L => L.skill === k);
+
+const DIVE = () => isTouch ? 'DIVE' : 'Shift';
+const FACTS = {
+  thermal: 'Birds of prey ride thermals, columns of warm rising air, to climb high without flapping. It saves a lot of energy.',
+  stoop: 'Peregrines are the fastest animals on Earth. In a hunting dive, called a stoop, they have been measured at over 320 km/h (200 mph).',
+  pigeon: 'Pigeons are one of the peregrine\'s favourite foods in Britain. Peregrines almost always catch other birds in mid-air.',
+  chicks: 'Peregrine chicks are called eyasses. They hatch covered in fluffy white down and make their first flight at about six weeks old.',
+  talons: 'A peregrine hits its prey with its feet balled up like a fist, then grabs with its talons. A notch on its beak, the "tomial tooth", finishes the job quickly.',
+  ddt: 'In the 1960s British peregrines nearly disappeared because of a pesticide called DDT. After it was banned they recovered, and today some even nest on cathedrals, like Salisbury and Norwich.',
+  tiercel: 'Female peregrines are about a third bigger than males. A male is called a tiercel, from an old word meaning "a third".',
+};
+const MISSIONS = [
+  { title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact: 'thermal' },
+  { title: 'The stoop', text: () => `Hold ${DIVE()} to fold your wings and dive faster than 180 km/h.`, done: s => s.topSpeed >= 180, fact: 'stoop' },
+  { title: 'First catch', text: () => 'Catch a wood pigeon. Get above one, then stoop down onto it.', done: s => s.pigeon >= 1, fact: 'pigeon' },
+  { title: 'Hungry mouths', text: () => 'Carry your catch to your eyrie on the western cliffs (gold beam).', done: s => s.fed >= 1, fact: 'chicks' },
+  { title: 'River hunter', text: () => 'Catch a teal, a quick little duck that skims low over the river.', done: s => s.teal >= 1, fact: 'talons' },
+  { title: 'Living arrow', text: () => 'Make a Stoop Strike: catch prey while diving faster than 200 km/h.', done: s => s.stoops >= 1, fact: 'ddt' },
+  { title: 'Lord of the Valley', text: () => 'Feed your chicks 5 times in total.', done: s => s.fed >= 5, fact: 'tiercel' },
+];
+
+// ---------- player falcon ----------
+const falcon = makeBird(LOOK.falcon);
+scene.add(falcon.group);
+falcon.group.rotation.order = 'YXZ';
+const F = { pos: new V3(), prev: new V3(), fwd: new V3(0, 0, 1), yaw: 0, pitch: 0, roll: 0, speed: 22, tuck: 0, flapPh: 0, energy: 100, carry: null, inThermal: false, crashT: 0, flapSnd: 0 };
+const maxEnergy = () => has('wings') ? 130 : 100;
+function resetFalcon() {
+  F.pos.set(EX + 8, EY + 30, EZ); F.prev.copy(F.pos);
+  F.yaw = Math.PI / 2; F.pitch = -0.05; F.roll = 0; F.speed = 22; F.tuck = 0; F.energy = maxEnergy();
+  if (F.carry) dropCarry();
+}
+
+// ---------- prey ----------
+const prey = [], flocks = [];
+function pickTarget(f) {
+  f.timer = 0;
+  if (f.type === 'teal') {
+    const z = clamp(f.home.z + (rand() - .5) * 2 * f.radius, -950, 950);
+    f.target.set(riverX(z), f.altMin + rand() * (f.altMax - f.altMin), z);
+  } else {
+    const a = rand() * 6.28, r = rand() * f.radius;
+    const x = clamp(f.home.x + Math.cos(a) * r, -950, 950), z = clamp(f.home.z + Math.sin(a) * r, -950, 950);
+    f.target.set(x, groundAt(x, z) + f.altMin + rand() * (f.altMax - f.altMin), z);
+  }
+}
+function addFlock(type, home, radius, altMin, altMax, n) {
+  const f = { type, home, radius, altMin, altMax, target: new V3(), timer: 0, members: [] };
+  pickTarget(f);
+  for (let i = 0; i < n; i++) {
+    const b = makeBird(LOOK[type]);
+    const p = { type, b, flock: f, pos: f.target.clone().add(new V3((rand() - .5) * 30, 0, (rand() - .5) * 30)), vel: new V3(rand() - .5, 0, rand() - .5).setLength(PREY[type].speed),
+      offset: new V3((rand() - .5) * 16, (rand() - .5) * 6, (rand() - .5) * 16), phase: rand() * 6, state: 'fly', fleeT: 0, respawn: 0, jink: 0 };
+    scene.add(b.group); f.members.push(p); prey.push(p);
+  }
+  flocks.push(f);
+}
+addFlock('pigeon', new V3(VX, 0, VZ), 220, 25, 70, 5);
+addFlock('pigeon', new V3(VX + 40, 0, VZ - 300), 260, 30, 80, 5);
+addFlock('pigeon', new V3(riverX(-450) + 250, 0, -450), 280, 30, 90, 5);
+addFlock('pigeon', new V3(riverX(650) + 120, 0, 650), 260, 25, 80, 4);
+addFlock('pigeon', new V3(riverX(-50) - 180, 0, -50), 200, 40, 90, 4);
+addFlock('teal', new V3(0, 0, -300), 450, 5, 16, 4);
+addFlock('teal', new V3(0, 0, 450), 450, 5, 16, 4);
+
+const tA = new V3(), tB = new V3(), tC = new V3();
+function updatePrey(dt, playing) {
+  for (const f of flocks) {
+    f.timer += dt;
+    const live = f.members.filter(p => p.state === 'fly');
+    if (live.length) {
+      tA.set(0, 0, 0); live.forEach(p => tA.add(p.pos)); tA.multiplyScalar(1 / live.length);
+      if (tA.distanceTo(f.target) < 40 || f.timer > 28) pickTarget(f);
+    }
+  }
+  for (const p of prey) {
+    if (p.state === 'dead') { p.respawn -= dt; if (p.respawn <= 0) respawnPrey(p); continue; }
+    if (p.state === 'carried') continue;
+    const T = PREY[p.type];
+    tA.subVectors(p.pos, F.pos); const d = tA.length();
+    if (playing && d < T.alert) p.fleeT = 2.6;
+    if (p.fleeT > 0) {
+      p.fleeT -= dt; p.jink += dt;
+      tA.normalize().multiplyScalar(T.flee);
+      tA.x += Math.sin(p.jink * 5 + p.phase) * 7; tA.z += Math.cos(p.jink * 4 + p.phase) * 7; tA.y = tA.y * 0.3 - 3;
+    } else {
+      tA.copy(p.flock.target).add(p.offset).sub(p.pos);
+      tA.multiplyScalar(T.speed / Math.max(tA.length(), 1));
+      if (tA.length() < T.speed * 0.6) tA.setLength(T.speed * 0.6);
+    }
+    p.vel.lerp(tA, 1 - Math.exp(-dt * (p.fleeT > 0 ? 3 : 1.3)));
+    const g = groundAt(p.pos.x, p.pos.z);
+    if (p.pos.y < g + 4) p.vel.y = Math.max(p.vel.y, (g + 4 - p.pos.y) * 3);
+    if (p.pos.y > 450) p.vel.y = Math.min(p.vel.y, 0);
+    if (Math.hypot(p.pos.x, p.pos.z) > LIMIT) { tB.set(-p.pos.x, 0, -p.pos.z).setLength(6 * dt); p.vel.add(tB); }
+    p.pos.addScaledVector(p.vel, dt);
+    p.b.group.position.copy(p.pos);
+    p.b.group.lookAt(tC.copy(p.pos).add(p.vel));
+    p.phase += dt * (p.fleeT > 0 ? 15 : 9);
+    const glide = p.type === 'pigeon' && p.fleeT <= 0 && Math.sin(p.phase * 0.08) > 0.6;
+    poseWings(p.b, glide ? 0.15 : Math.sin(p.phase) * 0.9, 0);
+  }
+}
+function respawnPrey(p) {
+  const f = p.flock;
+  tA.copy(f.target).add(p.offset);
+  if (tA.distanceTo(F.pos) < 220) { pickTarget(f); p.respawn = 4; return; }
+  if (p.b.group.parent !== scene) scene.add(p.b.group);
+  p.b.group.scale.setScalar(p.b.scale); p.b.group.visible = true;
+  p.pos.copy(tA); p.vel.set(rand() - .5, 0, rand() - .5).setLength(PREY[p.type].speed); p.state = 'fly'; p.fleeT = 0;
+}
+
+// ---------- feathers ----------
+const parts = [];
+{
+  const fg = new THREE.PlaneGeometry(0.24, 0.08), sg = new THREE.SphereGeometry(0.07, 5, 4);
+  const blood = toon(0x8c1d1d);
+  for (let i = 0; i < 180; i++) {
+    const speck = i % 6 === 0;
+    const m = new THREE.Mesh(speck ? sg : fg, speck ? blood : toon(0xffffff, { side: THREE.DoubleSide }));
+    m.visible = false; scene.add(m);
+    parts.push({ m, speck, v: new V3(), spin: new V3(), life: 0 });
+  }
+}
+let partIdx = 0;
+function burst(pos, vel, colors, n = 36) {
+  for (let i = 0; i < n; i++) {
+    const p = parts[partIdx++ % parts.length];
+    p.m.position.copy(pos); p.m.visible = true; p.life = p.speck ? 2 : 6 + rand() * 3;
+    p.v.set(rand() - .5, rand() - .3, rand() - .5).multiplyScalar(p.speck ? 6 : 10).addScaledVector(vel, 0.25);
+    p.spin.set(rand() * 8, rand() * 8, rand() * 8);
+    if (!p.speck) p.m.material.color.setHex(colors[i % colors.length]);
+    p.m.scale.setScalar(1);
+  }
+}
+function updateParts(dt) {
+  for (const p of parts) {
+    if (p.life <= 0) continue;
+    p.life -= dt;
+    if (p.speck) { p.v.y -= 9.8 * dt; }
+    else { p.v.multiplyScalar(Math.exp(-2.4 * dt)); p.v.y -= 1.0 * dt; p.v.y = Math.max(p.v.y, -1.6); p.m.position.x += Math.sin(p.life * 3 + p.spin.x) * dt * 0.8; }
+    p.m.position.addScaledVector(p.v, dt);
+    p.m.rotation.x += p.spin.x * dt; p.m.rotation.y += p.spin.y * dt;
+    if (p.life < 1) p.m.scale.setScalar(Math.max(p.life, 0.01));
+    if (p.life <= 0 || p.m.position.y < groundAt(p.m.position.x, p.m.position.z)) { p.life = 0; p.m.visible = false; }
+  }
+}
+
+// ---------- speed lines ----------
+const SL = 70;
+const slGeo = new THREE.BufferGeometry(), slPos = new Float32Array(SL * 6), slData = [];
+for (let i = 0; i < SL; i++) { const a = rand() * 6.28, r = 1.4 + rand() * 3.5; slData.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * .7, z: -rand() * 40 }); }
+slGeo.setAttribute('position', new THREE.BufferAttribute(slPos, 3));
+const speedLines = new THREE.LineSegments(slGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+speedLines.frustumCulled = false;
+camera.add(speedLines);
+function updateSpeedLines(dt) {
+  const kmh = F.speed * 3.6, o = game.state === 'play' ? clamp((kmh - 140) / 160, 0, 0.55) : 0;
+  speedLines.material.opacity = o; speedLines.visible = o > 0.01;
+  if (!speedLines.visible) return;
+  const len = 1 + F.speed * 0.05;
+  slData.forEach((s, i) => {
+    s.z += F.speed * 1.4 * dt; if (s.z > -1) s.z -= 40;
+    slPos.set([s.x, s.y, s.z, s.x, s.y, s.z - len], i * 6);
+  });
+  slGeo.attributes.position.needsUpdate = true;
+}
+
+// ---------- audio ----------
+const audio = { ctx: null };
+function initAudio() {
+  if (audio.ctx) { audio.ctx.resume?.(); return; }
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    let last = 0; for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 400;
+    const gain = ctx.createGain(); gain.gain.value = 0;
+    const master = ctx.createGain(); master.gain.value = save.muted ? 0 : 1;
+    src.connect(lp).connect(gain).connect(master).connect(ctx.destination); src.start();
+    const nb = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate), nd = nb.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+    Object.assign(audio, { ctx, lp, gain, master, noise: nb });
+  } catch (e) { }
+}
+function tone(freq, start, dur, { type = 'sine', vol = 0.15, to = null } = {}) {
+  const a = audio; if (!a.ctx) return;
+  const t = a.ctx.currentTime + start, o = a.ctx.createOscillator(), g = a.ctx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t); if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(a.master); o.start(t); o.stop(t + dur + 0.05);
+}
+function whoosh(vol = 0.12, freq = 700) {
+  const a = audio; if (!a.ctx) return;
+  const s = a.ctx.createBufferSource(), f = a.ctx.createBiquadFilter(), g = a.ctx.createGain();
+  s.buffer = a.noise; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.8; g.gain.value = vol;
+  s.connect(f).connect(g).connect(a.master); s.start();
+}
+const sfx = {
+  kek() { for (let i = 0; i < 5; i++) tone(2300, i * 0.11, 0.08, { type: 'sawtooth', vol: 0.05, to: 1700 }); },
+  chirp() { for (let i = 0; i < 8; i++) tone(3000 + rand() * 900, i * 0.09, 0.07, { vol: 0.07, to: 4200 }); },
+  level() { [523, 659, 784, 1046].forEach((f, i) => tone(f, i * 0.12, 0.35, { type: 'triangle', vol: 0.12 })); },
+  quest() { [659, 880].forEach((f, i) => tone(f, i * 0.1, 0.3, { type: 'triangle', vol: 0.1 })); },
+  thud() { tone(120, 0, 0.3, { type: 'sine', vol: 0.3, to: 50 }); whoosh(0.3, 300); },
+};
+function updateAudio() {
+  const a = audio; if (!a.ctx) return;
+  const s = F.speed / 110, t = a.ctx.currentTime;
+  a.lp.frequency.setTargetAtTime(220 + s * 2400, t, 0.1);
+  a.gain.gain.setTargetAtTime(game.state === 'play' && !game.paused ? 0.06 + s * 0.55 : 0.02, t, 0.2);
+  a.master.gain.setTargetAtTime(save.muted ? 0 : 1, t, 0.05);
+}
+
+// ---------- input ----------
+const keys = {};
+const touch = { x: 0, y: 0, flap: false, dive: false, id: null, ox: 0, oy: 0 };
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  if (game.state !== 'play') return;
+  if (e.code === 'KeyV' || e.code === 'KeyC') toggleCam();
+  if (e.code === 'KeyE') eatCarry();
+  if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+let padPrev = {};
+function readInput() {
+  let x = 0, y = 0, flap = false, tuck = false;
+  if (keys.KeyA || keys.ArrowLeft) x -= 1;
+  if (keys.KeyD || keys.ArrowRight) x += 1;
+  if (keys.KeyW || keys.ArrowUp) y -= 1;
+  if (keys.KeyS || keys.ArrowDown) y += 1;
+  if (keys.Space) flap = true;
+  if (keys.ShiftLeft || keys.ShiftRight) tuck = true;
+  x += touch.x; y += touch.y; flap ||= touch.flap; tuck ||= touch.dive;
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const gp of pads) {
+    if (!gp) continue;
+    const dz = v => Math.abs(v) < 0.15 ? 0 : v;
+    x += dz(gp.axes[0] || 0); y += dz(gp.axes[1] || 0);
+    const b = i => gp.buttons[i]?.pressed;
+    flap ||= b(0); tuck ||= b(1) || b(7) || b(6);
+    if (b(3) && !padPrev[3]) toggleCam();
+    if (b(2) && !padPrev[2]) eatCarry();
+    if (b(9) && !padPrev[9]) togglePause();
+    padPrev = { 2: b(2), 3: b(3), 9: b(9) };
+    break;
+  }
+  if (save.invert) y = -y;
+  return { x: clamp(x, -1, 1), y: clamp(y, -1, 1), flap, tuck };
+}
+// touch stick + buttons
+{
+  const zone = $('stickZone'), stick = $('stick'), knob = $('knob');
+  const home = () => { stick.style.left = ''; stick.style.top = ''; knob.style.transform = ''; touch.x = touch.y = 0; touch.id = null; };
+  zone.addEventListener('pointerdown', e => {
+    touch.id = e.pointerId; touch.ox = e.clientX; touch.oy = e.clientY; zone.setPointerCapture(e.pointerId);
+    stick.style.left = e.clientX + 'px'; stick.style.top = e.clientY + 'px'; e.preventDefault();
+  });
+  zone.addEventListener('pointermove', e => {
+    if (e.pointerId !== touch.id) return;
+    let dx = e.clientX - touch.ox, dy = e.clientY - touch.oy; const L = Math.hypot(dx, dy), R = 55;
+    if (L > R) { dx *= R / L; dy *= R / L; }
+    knob.style.transform = `translate(${dx}px,${dy}px)`;
+    touch.x = dx / R; touch.y = dy / R;
+  });
+  for (const ev of ['pointerup', 'pointercancel']) zone.addEventListener(ev, e => { if (e.pointerId === touch.id) home(); });
+  const hold = (id, key) => {
+    const el = $(id);
+    el.addEventListener('pointerdown', e => { touch[key] = true; el.classList.add('on'); el.setPointerCapture(e.pointerId); e.preventDefault(); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(ev, () => { touch[key] = false; el.classList.remove('on'); });
+  };
+  hold('bFlap', 'flap'); hold('bDive', 'dive');
+  $('bCam').addEventListener('pointerdown', e => { e.preventDefault(); toggleCam(); });
+  $('bEat').addEventListener('pointerdown', e => { e.preventDefault(); eatCarry(); });
+  document.addEventListener('gesturestart', e => e.preventDefault());
+}
+
+// ---------- game state ----------
+const game = { state: 'menu', paused: false, cam: 'third', t: 0, prevLevel: levelIdx() };
+function toggleCam() { game.cam = game.cam === 'third' ? 'first' : 'third'; $('camBtn').textContent = 'View: ' + (game.cam === 'third' ? 'behind' : 'eyes'); }
+
+const toastsEl = $('toasts');
+function toast(msg, cls = '', ms = 2600) {
+  const el = document.createElement('div'); el.className = 'toast ' + cls; el.textContent = msg;
+  toastsEl.appendChild(el); while (toastsEl.children.length > 3) toastsEl.firstChild.remove();
+  setTimeout(() => el.remove(), ms);
+}
+let factTimer = null;
+function showFact(key) {
+  $('factText').textContent = FACTS[key]; $('fact').hidden = false;
+  clearTimeout(factTimer); factTimer = setTimeout(() => { $('fact').hidden = true; }, 14000);
+}
+$('fact').addEventListener('pointerdown', () => { $('fact').hidden = true; });
+function flash(color, strength = 0.5) {
+  const el = $('flash'); el.style.transition = 'none'; el.style.background = color; el.style.opacity = strength;
+  requestAnimationFrame(() => { el.style.transition = 'opacity .6s'; el.style.opacity = 0; });
+}
+function gainXP(n) {
+  save.xp += n;
+  const l = levelIdx();
+  if (l > game.prevLevel) {
+    game.prevLevel = l; const L = LEVELS[l];
+    setTimeout(() => {
+      toast(`Level ${l + 1}: ${L.name}`, 'big', 3500);
+      if (L.skill) toast(`New skill: ${SKILLS[L.skill].name}`, 'gold', 4000);
+      sfx.level();
+    }, 600);
+    if (L.skill === 'wings') F.energy = maxEnergy();
+  }
+  persist(); renderStatus();
+}
+function renderStatus() {
+  const l = levelIdx(), L = LEVELS[l], N = LEVELS[l + 1];
+  $('lvlNum').textContent = 'Lv ' + (l + 1); $('lvlName').textContent = L.name;
+  $('xpBar').style.width = N ? ((save.xp - L.xp) / (N.xp - L.xp) * 100) + '%' : '100%';
+}
+function renderMission() {
+  const m = MISSIONS[save.mission];
+  if (!m) { $('mNum').textContent = 'complete'; $('mTitle').textContent = 'Free flight'; $('mText').textContent = 'Hunt, explore and keep your chicks fed. Fed so far: ' + stats().fed + '.'; return; }
+  $('mNum').textContent = `${save.mission + 1} of ${MISSIONS.length}`; $('mTitle').textContent = m.title; $('mText').textContent = m.text();
+}
+function checkMissions() {
+  const m = MISSIONS[save.mission];
+  if (!m || !m.done(stats())) return;
+  save.mission++;
+  toast('Quest complete: ' + m.title, 'gold', 3200); sfx.quest();
+  showFact(m.fact);
+  gainXP(60);
+  renderMission();
+  if (save.mission >= MISSIONS.length && !save.done) { save.done = true; persist(); setTimeout(() => { if (game.state === 'play') { game.paused = true; $('complete').hidden = false; } }, 2500); }
+}
+
+// catching / carrying
+function distToSeg(p, a, b) {
+  tB.subVectors(b, a); const L2 = tB.lengthSq();
+  const t = L2 ? clamp(tC.subVectors(p, a).dot(tB) / L2, 0, 1) : 0;
+  return tC.copy(a).addScaledVector(tB, t).distanceTo(p);
+}
+function tryCatch() {
+  if (F.carry) return;
+  const R = 3.3 + (has('grip') ? 1.8 : 0);
+  for (const p of prey) {
+    if (p.state !== 'fly') continue;
+    if (distToSeg(p.pos, F.prev, F.pos) < R) { catchPrey(p); break; }
+  }
+}
+function catchPrey(p) {
+  const T = PREY[p.type], kmh = F.speed * 3.6, stoop = kmh >= 200;
+  const xp = T.xp * (stoop ? 2 : 1);
+  burst(p.pos, p.vel, T.feathers);
+  p.state = 'carried'; F.carry = p;
+  falcon.group.add(p.b.group);
+  p.b.group.position.set(0, -0.42, 0.05); p.b.group.rotation.set(0.25, 0, 0); p.b.group.scale.setScalar(p.b.scale / falcon.scale * 0.95);
+  poseWings(p.b, 0, 0, 0.9);
+  falcon.feet.visible = true;
+  stats()[p.type]++; if (stoop) stats().stoops++;
+  sfx.kek(); whoosh(0.25, 500);
+  flash('rgba(255,255,255,.9)', 0.35);
+  if (stoop) toast(`STOOP STRIKE! ${T.name} +${xp} XP`, 'big', 3000);
+  else toast(`${T.name} caught! +${xp} XP`, 'gold');
+  gainXP(xp);
+  updateCarryUI();
+}
+function dropCarry() {
+  const p = F.carry; if (!p) return;
+  falcon.group.remove(p.b.group); p.b.group.visible = false;
+  p.state = 'dead'; p.respawn = 25 + rand() * 15;
+  F.carry = null; falcon.feet.visible = false; updateCarryUI();
+}
+function eatCarry() {
+  if (!F.carry || game.state !== 'play') return;
+  burst(F.pos, F.fwd.clone().multiplyScalar(F.speed), PREY[F.carry.type].feathers, 24);
+  dropCarry();
+  F.energy = Math.min(maxEnergy(), F.energy + 55); stats().eaten++;
+  toast('Gulp! Energy restored', ''); persist();
+}
+function feedChicks() {
+  dropCarry();
+  stats().fed++; F.energy = maxEnergy(); chickHop = 3;
+  sfx.chirp(); toast('Your chicks are fed! +50 XP', 'gold', 3000);
+  gainXP(50);
+}
+function updateCarryUI() {
+  const c = $('carry');
+  c.hidden = !F.carry; $('bEat').hidden = !F.carry;
+  beacon.visible = !!F.carry;
+  if (F.carry) c.innerHTML = `Carrying a <b>${PREY[F.carry.type].name.toLowerCase()}</b>. Take it to the eyrie, or ${isTouch ? 'tap EAT' : 'press E'} to eat it now.`;
+}
+
+// ---------- flight ----------
+const fwdOf = (yaw, pitch, out) => out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+let target = null;
+function updateFalcon(dt, inp) {
+  F.prev.copy(F.pos);
+  F.tuck = damp(F.tuck, inp.tuck ? 1 : 0, 6, dt);
+  F.roll = damp(F.roll, inp.x * (0.95 - F.tuck * 0.35), 4, dt);
+  F.yaw -= Math.sin(F.roll) * 1.95 * (1 - F.tuck * 0.45) * dt;
+  F.pitch += inp.y * -1 * (1.1 + F.speed / 90) * dt;
+  if (F.tuck > 0.4 && inp.y >= 0) F.pitch = damp(F.pitch, -1.25, 1.4 * F.tuck, dt);
+  if (Math.abs(inp.y) < 0.1 && F.tuck < 0.3) F.pitch = damp(F.pitch, -0.05, 0.45, dt);
+  if (F.speed < 11) F.pitch -= (11 - F.speed) * 0.12 * dt;
+  // gentle aim assist toward the marked prey
+  if (target && !F.carry) {
+    tA.subVectors(target.pos, F.pos); const d = tA.length(); tA.normalize();
+    if (d < 90 && tA.dot(F.fwd) > 0.86) {
+      const wantYaw = Math.atan2(tA.x, tA.z), wantPitch = Math.asin(clamp(tA.y, -1, 1));
+      let dy = wantYaw - F.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      F.yaw += clamp(dy, -0.9 * dt, 0.9 * dt); F.pitch += clamp(wantPitch - F.pitch, -0.9 * dt, 0.9 * dt);
+    }
+  }
+  F.pitch = clamp(F.pitch, -1.5, 0.85);
+
+  const sp = Math.sin(F.pitch);
+  const openDrag = 0.0016 + 0.004 * Math.max(0, -sp);
+  const drag = lerp(openDrag, has('arrow') ? 0.00078 : 0.00098, F.tuck);
+  let acc = -9.8 * sp - drag * F.speed * F.speed;
+  const flapping = inp.flap && F.energy > 0 && F.tuck < 0.5;
+  let lift = 0;
+  if (flapping) { acc += 1.5 * (has('wings') ? 1.3 : 1); lift += 2.6 * (has('wings') ? 1.3 : 1); F.energy -= 13 * dt; }
+  if (F.carry) acc -= 0.5;
+  F.inThermal = false;
+  for (const t of THERMALS) {
+    if (Math.hypot(F.pos.x - t.x, F.pos.z - t.z) < t.r && F.pos.y < t.top) { F.inThermal = true; lift += t.lift * (1 - F.tuck); }
+  }
+  if (!flapping) F.energy += (F.inThermal ? 12 : 3) * dt;
+  F.energy = clamp(F.energy, 0, maxEnergy());
+  F.speed = clamp(F.speed + acc * dt, 7, 115);
+
+  fwdOf(F.yaw, F.pitch, F.fwd);
+  F.pos.addScaledVector(F.fwd, F.speed * dt);
+  F.pos.y += lift * dt;
+
+  // ground and water
+  const floor = groundAt(F.pos.x, F.pos.z) + 1.3;
+  if (F.pos.y < floor) {
+    if (F.speed > 50 && F.pitch < -0.35 && F.crashT <= 0) {
+      F.speed = 12; F.energy = Math.max(0, F.energy - 35); F.crashT = 2;
+      sfx.thud(); flash('rgba(239,106,85,.8)', 0.55); toast('Crash! Pull out of the dive sooner.', 'bad');
+    }
+    F.pos.y = floor; F.pitch = Math.max(F.pitch, 0.15); F.speed *= 1 - 0.6 * dt;
+  }
+  F.crashT -= dt;
+  if (F.pos.y > 640) { F.pos.y = 640; F.pitch = Math.min(F.pitch, 0); }
+  // world edge
+  const r = Math.hypot(F.pos.x, F.pos.z);
+  if (r > LIMIT) {
+    const want = Math.atan2(-F.pos.x, -F.pos.z); let dy = want - F.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    F.yaw += clamp(dy, -1.2 * dt, 1.2 * dt);
+    if (!F.edgeWarned) { toast('The valley ends here. Turn back!', 'bad'); F.edgeWarned = true; }
+  } else if (r < LIMIT - 80) F.edgeWarned = false;
+
+  // stats & missions
+  const kmh = F.speed * 3.6;
+  if (kmh > stats().topSpeed) stats().topSpeed = kmh;
+  if (F.inThermal) stats().thermalTime += dt;
+
+  // pose
+  falcon.group.position.copy(F.pos);
+  falcon.group.rotation.set(-F.pitch, F.yaw, F.roll);
+  if (flapping) F.flapPh += dt * 13; else F.flapPh += dt * 2;
+  const flap = flapping ? Math.sin(F.flapPh) * 0.85 : Math.sin(F.flapPh) * 0.06 + 0.05;
+  poseWings(falcon, flap, F.tuck);
+  falcon.head.rotation.y = damp(falcon.head.rotation.y, -inp.x * 0.4, 5, dt);
+  if (flapping && Math.sin(F.flapPh) > 0.95 && F.flapSnd <= 0) { whoosh(0.07, 900); F.flapSnd = 0.2; }
+  F.flapSnd -= dt;
+
+  tryCatch();
+  if (F.carry && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 20 && Math.abs(F.pos.y - EY) < 30) feedChicks();
+}
+
+// menu: falcon circles over the valley
+function updateMenuFlight(dt) {
+  const t = game.t * 0.12;
+  F.pos.set(riverX(-60) + Math.cos(t) * 160, 130 + Math.sin(t * 2) * 12, -60 + Math.sin(t) * 160);
+  F.yaw = Math.atan2(-Math.sin(t), Math.cos(t)); F.pitch = Math.cos(t * 2) * 0.05; F.roll = 0.35; F.speed = 20;
+  fwdOf(F.yaw, F.pitch, F.fwd);
+  falcon.group.position.copy(F.pos); falcon.group.rotation.set(-F.pitch, F.yaw, F.roll);
+  F.flapPh += dt * 2;
+  poseWings(falcon, Math.sin(game.t * 9) > 0.3 && Math.sin(game.t * 0.7) > 0.5 ? Math.sin(game.t * 13) * 0.8 : 0.06, 0);
+}
+
+// ---------- camera ----------
+const camTarget = new V3(), camLook = new V3();
+let camInit = false;
+function updateCamera(dt) {
+  const kmh = F.speed * 3.6;
+  if (game.cam === 'first' && game.state === 'play') {
+    falcon.group.visible = false;
+    camera.position.copy(F.pos).addScaledVector(F.fwd, 0.7); camera.position.y += 0.2;
+    camera.quaternion.copy(falcon.group.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new V3(0, 1, 0), Math.PI));
+  } else {
+    falcon.group.visible = true;
+    const back = game.state === 'menu' ? 9 : 6 + F.tuck * 1.5;
+    camTarget.copy(F.pos).addScaledVector(F.fwd, -back); camTarget.y += game.state === 'menu' ? 3 : 2.1;
+    if (game.state === 'menu') camTarget.addScaledVector(tA.set(F.fwd.z, 0, -F.fwd.x), 5);
+    if (!camInit) { camera.position.copy(camTarget); camInit = true; }
+    camera.position.x = damp(camera.position.x, camTarget.x, 6, dt);
+    camera.position.y = damp(camera.position.y, camTarget.y, 6, dt);
+    camera.position.z = damp(camera.position.z, camTarget.z, 6, dt);
+    const cg = groundAt(camera.position.x, camera.position.z) + 1.5;
+    if (camera.position.y < cg) camera.position.y = cg;
+    camLook.copy(F.pos).addScaledVector(F.fwd, 8);
+    camera.lookAt(camLook);
+    camera.rotateZ(-F.roll * 0.28);
+    if (kmh > 240 && game.state === 'play') { camera.position.x += (Math.random() - .5) * 0.06; camera.position.y += (Math.random() - .5) * 0.06; }
+  }
+  const fov = 62 + clamp(F.speed / 110, 0, 1) * 26;
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = damp(camera.fov, fov, 3, dt); camera.updateProjectionMatrix(); }
+  sky.position.copy(camera.position);
+  sun.position.copy(F.pos).addScaledVector(SUN_DIR, 300); sun.target.position.copy(F.pos);
+}
+
+// ---------- HUD ----------
+const mini = $('mini'), mctx = mini.getContext('2d');
+const MAP_R = 1150;
+const mapImg = document.createElement('canvas'); mapImg.width = mapImg.height = 150;
+{
+  const ctx = mapImg.getContext('2d'), img = ctx.createImageData(150, 150), c = new THREE.Color();
+  for (let j = 0; j < 150; j++) for (let i = 0; i < 150; i++) {
+    const x = (i / 149 * 2 - 1) * MAP_R, z = (j / 149 * 2 - 1) * MAP_R, h = heightAt(x, z);
+    terrainColor(x, z, h, slopeAt(x, z), c); if (h < 0) c.setHex(0x3d9cc6);
+    const k = (j * 150 + i) * 4; c.convertLinearToSRGB(); img.data.set([c.r * 255, c.g * 255, c.b * 255, 255], k);
+  }
+  ctx.putImageData(img, 0, 0);
+}
+const toMap = (x, z) => [(x / MAP_R * .5 + .5) * 150, (z / MAP_R * .5 + .5) * 150];
+function drawMini() {
+  mctx.drawImage(mapImg, 0, 0);
+  mctx.fillStyle = 'rgba(15,26,28,.25)'; mctx.fillRect(0, 0, 150, 150);
+  for (const t of THERMALS) { const [x, y] = toMap(t.x, t.z); mctx.strokeStyle = 'rgba(255,234,176,.9)'; mctx.setLineDash([2, 2]); mctx.beginPath(); mctx.arc(x, y, 4, 0, 7); mctx.stroke(); }
+  mctx.setLineDash([]);
+  for (const p of prey) { if (p.state !== 'fly') continue; const [x, y] = toMap(p.pos.x, p.pos.z); mctx.fillStyle = p.type === 'teal' ? '#5fe0b0' : '#ffffff'; mctx.fillRect(x - 1.5, y - 1.5, 3, 3); }
+  const [ex, ey] = toMap(EX, EZ); mctx.fillStyle = '#f0c02a'; mctx.save(); mctx.translate(ex, ey); mctx.rotate(Math.PI / 4); mctx.fillRect(-4, -4, 8, 8); mctx.restore();
+  const [fx, fy] = toMap(F.pos.x, F.pos.z);
+  mctx.save(); mctx.translate(fx, fy); mctx.rotate(-F.yaw + Math.PI);
+  mctx.fillStyle = '#ef6a55'; mctx.strokeStyle = '#000'; mctx.lineWidth = 1;
+  mctx.beginPath(); mctx.moveTo(0, -7); mctx.lineTo(5, 5); mctx.lineTo(0, 2); mctx.lineTo(-5, 5); mctx.closePath(); mctx.fill(); mctx.stroke(); mctx.restore();
+}
+const pv = new V3();
+function placeMarker(el, pos) {
+  pv.copy(pos).project(camera);
+  let x = pv.x, y = pv.y; const behind = pv.z > 1;
+  if (behind) { x = -x; y = -y; }
+  const m = 0.86; let edge = false;
+  if (behind || Math.abs(x) > m || Math.abs(y) > m) {
+    const mx = Math.max(Math.abs(x), Math.abs(y));
+    if (mx < 1e-3) { x = 0; y = -m; } else { x *= m / mx; y *= m / mx; }
+    edge = true;
+  }
+  el.style.transform = `translate(${(x * .5 + .5) * innerWidth}px,${(-y * .5 + .5) * innerHeight}px)`;
+  el.classList.toggle('edge', edge);
+}
+let frame = 0;
+function updateHUD() {
+  frame++;
+  const kmh = Math.round(F.speed * 3.6), g = groundAt(F.pos.x, F.pos.z);
+  $('spd').textContent = kmh; $('alt').textContent = Math.max(0, Math.round(F.pos.y - g));
+  $('enBar').style.width = (F.energy / maxEnergy() * 100) + '%';
+  $('energy').classList.toggle('low', F.energy < 25);
+  const stoop = F.tuck > 0.5; $('gauges').classList.toggle('stoop', stoop); $('stoopTag').hidden = !stoop;
+  $('vignette').style.opacity = clamp((kmh - 150) / 200, 0, 0.9);
+
+  // prey marker
+  const range = has('keen') ? 450 : 250;
+  target = null; let best = Infinity;
+  if (!F.carry) for (const p of prey) {
+    if (p.state !== 'fly') continue;
+    tA.subVectors(p.pos, F.pos); const d = tA.length(); if (d > range) continue;
+    const dot = tA.dot(F.fwd) / d; if (dot < 0.35) continue;
+    const score = d * (1.6 - dot); if (score < best) { best = score; target = p; }
+  }
+  const mk = $('mkPrey');
+  mk.hidden = !target || game.cam === 'menu';
+  if (target) {
+    placeMarker(mk, target.pos);
+    const d = Math.round(target.pos.distanceTo(F.pos));
+    mk.firstChild.textContent = `${PREY[target.type].name} · ${d} m`;
+    mk.classList.toggle('close', d < 45);
+  }
+  const nk = $('mkNest'); nk.hidden = !F.carry;
+  if (F.carry) { placeMarker(nk, tB.set(EX, EY + 4, EZ)); nk.firstChild.textContent = 'Eyrie · ' + Math.round(F.pos.distanceTo(EYRIE)) + ' m'; }
+  const tk = $('mkTherm'); const showT = save.mission === 0 || F.energy < 20;
+  tk.hidden = !showT || F.inThermal;
+  if (showT && !F.inThermal) {
+    let nt = THERMALS[0], nd = Infinity; for (const t of THERMALS) { const d = Math.hypot(F.pos.x - t.x, F.pos.z - t.z); if (d < nd) { nd = d; nt = t; } }
+    placeMarker(tk, tB.set(nt.x, Math.max(F.pos.y, nt.base + 20), nt.z)); tk.firstChild.textContent = 'Thermal · ' + Math.round(nd) + ' m';
+  }
+  if (frame % 3 === 0) drawMini();
+}
+
+function updateChicks(dt) {
+  chickHop = Math.max(0, chickHop - dt);
+  chicks.forEach(c => {
+    c.ph += dt * (chickHop > 0 ? 14 : 3);
+    c.hd.position.y = 0.5 + Math.sin(c.ph) * (chickHop > 0 ? 0.12 : 0.03) + (chickHop > 0 ? 0.1 : 0);
+    c.hd.rotation.x = chickHop > 0 ? -0.6 : Math.sin(c.ph * 0.5) * 0.15;
+  });
+}
+
+// ---------- menus ----------
+const BIRDS = [
+  { id: 'peregrine', name: 'Peregrine Falcon', hab: 'Sea cliffs, crags and cathedrals', blurb: 'The fastest animal alive. Climb high, fold your wings and stoop onto birds in mid-air.', s: [5, 3, 2], ok: true },
+  { id: 'eagle', name: 'Golden Eagle', hab: 'Scottish Highlands', blurb: 'Huge and powerful. Soar the glens on 2 m wings and hunt mountain hares.', s: [3, 5, 2] },
+  { id: 'owl', name: 'Barn Owl', hab: 'Farmland at dusk', blurb: 'Silent flight and super hearing. Find voles in the dark by sound alone.', s: [2, 2, 5] },
+  { id: 'osprey', name: 'Osprey', hab: 'Lochs and rivers', blurb: 'The fish hawk. Hover, then plunge feet-first into the water.', s: [3, 4, 2] },
+  { id: 'kite', name: 'Red Kite', hab: 'Chiltern hills', blurb: 'A forked-tail glider that rules the sky by patience and cunning.', s: [3, 2, 3] },
+  { id: 'sparrowhawk', name: 'Sparrowhawk', hab: 'Woods and gardens', blurb: 'An ambush expert that weaves between trees at full speed.', s: [4, 2, 4] },
+];
+function pips(n) { return '<span class="pips">' + [1, 2, 3, 4, 5].map(i => `<i class="${i <= n ? 'f' : ''}"></i>`).join('') + '</span>'; }
+$('cards').innerHTML = BIRDS.map(b => `
+  <button class="card ${b.ok ? 'sel' : 'locked'}" ${b.ok ? '' : 'aria-disabled="true"'} data-id="${b.id}">
+    <span class="lock">${b.ok ? 'Playable' : 'Coming soon'}</span>
+    <h3>${b.name}</h3><p class="hab">${b.hab}</p><p class="blurb">${b.blurb}</p>
+    <span class="stats"><span>Speed</span>${pips(b.s[0])}<span>Power</span>${pips(b.s[1])}<span>Stealth</span>${pips(b.s[2])}</span>
+  </button>`).join('');
+$('cards').addEventListener('click', e => { const c = e.target.closest('.card'); if (c && c.classList.contains('locked')) toast(`${c.querySelector('h3').textContent} isn't ready yet`, '', 1800); });
+const HOWTO = isTouch
+  ? [['Left thumb', 'Drag to steer. Push up to dive, pull down to climb'], ['FLAP', 'Hold to flap (uses energy)'], ['DIVE', 'Hold to fold your wings and stoop'], ['EAT', 'Eat what you are carrying'], ['VIEW', 'Switch camera']]
+  : [['A D', 'Turn left and right'], ['W S', 'Nose down and nose up'], ['Space', 'Flap (uses energy)'], ['Shift', 'Fold wings and stoop'], ['E', 'Eat what you are carrying'], ['V', 'Switch camera'], ['Esc', 'Pause']];
+const howtoHTML = HOWTO.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('') + (isTouch ? '' : '<div><kbd>Gamepad</kbd><span>Supported too</span></div>');
+$('howto').innerHTML = howtoHTML; $('howto2').innerHTML = howtoHTML;
+
+function renderPause() {
+  const s = stats();
+  $('statgrid').innerHTML = [['Level', `${levelIdx() + 1} · ${LEVELS[levelIdx()].name}`], ['XP', save.xp], ['Wood pigeons', s.pigeon], ['Teal', s.teal], ['Stoop strikes', s.stoops], ['Chicks fed', s.fed], ['Top speed', Math.round(s.topSpeed) + ' km/h']]
+    .map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
+  $('skills').innerHTML = LEVELS.filter(L => L.skill).map(L => {
+    const got = has(L.skill), S = SKILLS[L.skill];
+    return `<div class="skill ${got ? 'got' : ''}"><small>${got ? 'Learned' : 'Unlocks at level ' + (LEVELS.indexOf(L) + 1)}</small><b>${S.name}</b><span>${S.desc}</span></div>`;
+  }).join('');
+  $('invertBtn').textContent = 'Invert up/down: ' + (save.invert ? 'on' : 'off'); $('invertBtn').classList.toggle('on', save.invert);
+  $('soundBtn').textContent = 'Sound: ' + (save.muted ? 'off' : 'on');
+}
+function togglePause(force) {
+  if (game.state !== 'play') return;
+  game.paused = force ?? !game.paused;
+  $('pause').hidden = !game.paused;
+  if (game.paused) { renderPause(); $('resetBtn').textContent = 'Start this bird again'; $('resetBtn').dataset.armed = ''; }
+}
+function startGame() {
+  initAudio();
+  $('menu').hidden = true; $('hud').hidden = false; $('touch').hidden = !isTouch;
+  game.state = 'play'; game.paused = false; camInit = false;
+  resetFalcon(); renderMission(); renderStatus(); updateCarryUI();
+  if (save.mission === 0 && save.xp === 0) setTimeout(() => toast('You are a young peregrine. Learn to hunt and feed your chicks!', 'gold', 4500), 500);
+}
+function toMenu() {
+  game.state = 'menu'; game.paused = false; game.cam = 'third';
+  $('pause').hidden = true; $('hud').hidden = true; $('touch').hidden = true; $('menu').hidden = false;
+  if (F.carry) dropCarry();
+}
+$('startBtn').addEventListener('click', startGame);
+$('pauseBtn').addEventListener('click', () => togglePause());
+$('resumeBtn').addEventListener('click', () => togglePause(false));
+$('invertBtn').addEventListener('click', () => { save.invert = !save.invert; persist(); renderPause(); });
+$('soundBtn').addEventListener('click', () => { save.muted = !save.muted; persist(); renderPause(); });
+$('camBtn').addEventListener('click', toggleCam);
+$('menuBtn').addEventListener('click', toMenu);
+$('resetBtn').addEventListener('click', e => {
+  const b = e.currentTarget;
+  if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to wipe progress'; return; }
+  save = { ...save, xp: 0, mission: 0, stats: blankStats(), done: false }; game.prevLevel = 0; persist();
+  togglePause(false); resetFalcon(); renderMission(); renderStatus(); updateCarryUI(); toast('A fresh start', '');
+});
+$('keepBtn').addEventListener('click', () => { $('complete').hidden = true; game.paused = false; });
+document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'play' && !game.paused) togglePause(true); });
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+
+// ---------- loop ----------
+const clock = new THREE.Clock();
+function tick() {
+  requestAnimationFrame(tick);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  game.t += dt;
+  const live = game.state === 'play' && !game.paused;
+  if (game.state === 'menu') updateMenuFlight(dt);
+  else if (live) { updateFalcon(dt, readInput()); checkMissions(); }
+  if (game.state === 'menu' || live) {
+    updatePrey(dt, live); updateParts(dt); updateChicks(dt); updateThermals(dt);
+    for (const c of clouds) { c.position.x += dt * 3; if (c.position.x > 1400) c.position.x = -1400; }
+  }
+  updateCamera(dt);
+  updateSpeedLines(dt);
+  if (game.state === 'play') updateHUD();
+  updateAudio();
+  renderer.render(scene, camera);
+}
+$('loading').remove();
+$('menu').hidden = false;
+window.__talon = { F, game, prey, startGame, heightAt, EYRIE };
+tick();
+</script>
