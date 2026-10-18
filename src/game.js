@@ -1,0 +1,1868 @@
+import * as THREE from 'three';
+
+const V3 = THREE.Vector3;
+const $ = id => document.getElementById(id);
+const isTouch = matchMedia('(pointer: coarse)').matches;
+if (isTouch) document.body.classList.add('touch');
+const KEY = isTouch
+  ? { fly: 'FLAP', dive: 'DIVE', act: 'ACT', sleep: 'ACT', up: 'push the stick up' }
+  : { fly: 'Space', dive: 'Shift', act: 'E', sleep: 'Z', up: 'hold W' };
+
+// ---------- helpers ----------
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const damp = (a, b, l, dt) => lerp(a, b, 1 - Math.exp(-l * dt));
+const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
+function rng(seed) { return () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rand = rng(20261018);
+const perm = new Uint8Array(512);
+{ const p = [...Array(256).keys()]; for (let i = 255; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; } for (let i = 0; i < 512; i++) perm[i] = p[i & 255]; }
+const hash = (i, j) => perm[(perm[i & 255] + j) & 255] / 255;
+function vnoise(x, z) {
+  const xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
+  return lerp(lerp(hash(xi, zi), hash(xi + 1, zi), u), lerp(hash(xi, zi + 1), hash(xi + 1, zi + 1), u), v);
+}
+function fbm(x, z, o = 5) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < o; i++) { s += a * vnoise(x * f, z * f); n += a; a *= 0.5; f *= 2.03; } return s / n; }
+const tA = new V3(), tB = new V3(), tC = new V3(), pv = new V3();
+
+// ---------- world shape ----------
+const WORLD = 3200, LIMIT = 1050;
+const THIN_AIR = 450;           // above this height (sea level) the air is too thin and energy drains
+const riverX = z => 160 * Math.sin(z * 0.0026) + 60 * Math.sin(z * 0.007 + 1.3);
+const CLIFF = 330;
+const VZ = 260, VX = riverX(260) + 150;
+function heightAt(x, z) {
+  const rx = riverX(z), d = Math.abs(x - rx);
+  const n = fbm(x * 0.0035 + 10, z * 0.0035 - 5);
+  let h = -6 + 14 * smooth(8, 60, d) + Math.pow(n, 1.6) * 230 * smooth(60, 520, d);
+  const w = rx - x;
+  h += smooth(CLIFF - 25, CLIFF + 15, w) * (110 + 60 * fbm(z * 0.01, 3.3, 3));
+  const r = Math.hypot(x, z);
+  h += smooth(850, 1250, r) * 260 * fbm(x * 0.004, z * 0.004, 3);
+  const dv = Math.hypot(x - VX, z - VZ);
+  h = lerp(h, 9, smooth(140, 60, dv));
+  return h;
+}
+const groundAt = (x, z) => Math.max(heightAt(x, z), 0);
+const slopeAt = (x, z) => { const e = 3; return tC.set(heightAt(x - e, z) - heightAt(x + e, z), 2 * e, heightAt(x, z - e) - heightAt(x, z + e)).normalize().y; };
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ canvas: $('game'), antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, isTouch ? 1.5 : 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = !isTouch;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xd3e9ef, 260, 1650);
+const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 6000);
+scene.add(camera);
+
+const SUN_DIR = new V3(-0.45, 0.62, 0.35).normalize();
+const MOON_DIR = new V3(0.4, 0.6, -0.3).normalize();
+const LIGHT_DIR = new V3().copy(SUN_DIR);
+const hemi = new THREE.HemisphereLight(0xc4e4ff, 0x6a8a48, 1.05);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff0d2, 2.1);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 700 });
+sun.shadow.bias = -0.0008;
+scene.add(sun, sun.target);
+
+const skyU = {
+  top: { value: new THREE.Color(0x3f8fd4) }, horizon: { value: new THREE.Color(0xd3e9ef) },
+  sunDir: { value: SUN_DIR }, moonDir: { value: MOON_DIR }, night: { value: 0 }
+};
+const sky = new THREE.Mesh(new THREE.SphereGeometry(4500, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU,
+  vertexShader: `varying vec3 vW; void main(){ vW = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 moonDir; uniform float night; varying vec3 vW;
+    void main(){ vec3 d = normalize(vW); float h = clamp(d.y, 0.0, 1.0); vec3 c = mix(horizon, top, pow(h, 0.5));
+      float s = max(dot(d, sunDir), 0.0);
+      c += (1.0 - night) * (vec3(1.0,0.9,0.7) * pow(s, 400.0) * 2.0 + vec3(1.0,0.8,0.55) * pow(s, 10.0) * 0.2);
+      float m = max(dot(d, moonDir), 0.0);
+      c += night * (vec3(0.92,0.94,1.0) * smoothstep(0.9993, 0.9996, m) * 1.3 + vec3(0.5,0.6,0.9) * pow(m, 40.0) * 0.18);
+      gl_FragColor = vec4(c, 1.0);
+      #include <colorspace_fragment>
+    }`
+}));
+sky.renderOrder = -1;
+scene.add(sky);
+const stars = (() => {
+  const n = 1400, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = rand() * 6.283, y = 0.05 + rand() * 0.95, r = Math.sqrt(1 - y * y);
+    pos.set([Math.cos(a) * r * 4200, y * 4200, Math.sin(a) * r * 4200], i * 3);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const p = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+  p.frustumCulled = false; scene.add(p); return p;
+})();
+
+const grad = new THREE.DataTexture(new Uint8Array([105, 180, 255]), 3, 1, THREE.RedFormat);
+grad.minFilter = grad.magFilter = THREE.NearestFilter; grad.needsUpdate = true;
+const toon = (c, extra = {}) => new THREE.MeshToonMaterial({ color: c, gradientMap: grad, ...extra });
+
+// ---------- terrain ----------
+const SEG = 260;
+const tGeo = new THREE.PlaneGeometry(WORLD, WORLD, SEG, SEG);
+tGeo.rotateX(-Math.PI / 2);
+function terrainColor(x, z, h, ny, out) {
+  const C = terrainColor.C || (terrainColor.C = {
+    bed: new THREE.Color(0x8f8a64), sand: new THREE.Color(0xd2c08e), grass: new THREE.Color(0x5e9a42),
+    fields: [0x86b84e, 0x9ccb5c, 0x72a845, 0xdcc94a, 0xa9cc6c, 0x8fbf55].map(v => new THREE.Color(v)),
+    moor: new THREE.Color(0x93708c), brown: new THREE.Color(0x7f6f4c), rock: new THREE.Color(0x918a7e), snow: new THREE.Color(0xf0f4f5)
+  });
+  if (h < 1.3) return out.copy(h < -1.5 ? C.bed : C.sand);
+  if (ny < 0.74) return out.copy(C.rock).lerp(C.brown, fbm(x * .02, z * .02, 2) * .45);
+  if (h < 45) return out.copy(C.fields[Math.floor(hash(Math.floor((x + 4000) / 70), Math.floor((z + 4000) / 55)) * 5.99)]);
+  if (h < 110) return out.copy(C.grass).lerp(C.fields[2], fbm(x * .01, z * .01, 2) * .6);
+  if (h < 240) return out.copy(C.grass).lerp(fbm(x * .008 + 4, z * .008, 2) > 0.5 ? C.moor : C.brown, smooth(110, 165, h));
+  return out.copy(C.rock).lerp(C.snow, smooth(250, 320, h));
+}
+{
+  const P = tGeo.attributes.position;
+  for (let i = 0; i < P.count; i++) P.setY(i, heightAt(P.getX(i), P.getZ(i)));
+  tGeo.computeVertexNormals();
+  const N = tGeo.attributes.normal, cols = new Float32Array(P.count * 3), c = new THREE.Color();
+  for (let i = 0; i < P.count; i++) { terrainColor(P.getX(i), P.getZ(i), P.getY(i), N.getY(i), c); cols.set([c.r, c.g, c.b], i * 3); }
+  tGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+}
+const terrain = new THREE.Mesh(tGeo, toon(0xffffff, { vertexColors: true }));
+terrain.receiveShadow = true;
+scene.add(terrain);
+const water = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD).rotateX(-Math.PI / 2), toon(0x3d9cc6, { transparent: true, opacity: 0.84 }));
+scene.add(water);
+const dummy = new THREE.Object3D();
+
+// ---------- trees (also perches and hiding places) ----------
+const TREES = [], TREE_GRID = new Map(), CELL = 40;
+const cellKey = (x, z) => Math.floor(x / CELL) + ',' + Math.floor(z / CELL);
+function treesNear(x, z) {
+  const out = [], cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const l = TREE_GRID.get((cx + i) + ',' + (cz + j)); if (l) out.push(...l); }
+  return out;
+}
+{
+  const spots = [];
+  for (let i = 0; i < 9000 && spots.length < 2100; i++) {
+    const x = (rand() - .5) * 2200, z = (rand() - .5) * 2200, h = heightAt(x, z);
+    if (h < 3 || h > 175) continue;
+    if (Math.hypot(x - VX, z - VZ) < 110) continue;
+    const wood = fbm(x * 0.006 + 30, z * 0.006 - 7, 3);
+    if (wood < 0.56 && rand() > 0.025) continue;
+    if (slopeAt(x, z) < 0.8) continue;
+    spots.push([x, h, z, h > 95 || (wood > 0.66 && rand() < .5) ? 1 : 0]);
+  }
+  const broad = spots.filter(s => !s[3]), pine = spots.filter(s => s[3]);
+  const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 1, 6).translate(0, 0.5, 0);
+  const trunks = new THREE.InstancedMesh(trunkGeo, toon(0x6b4f35), spots.length);
+  const canopy = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), toon(0xffffff), broad.length);
+  const cones = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 7).translate(0, 0.5, 0), toon(0xffffff), pine.length);
+  const col = new THREE.Color();
+  spots.forEach((s, i) => {
+    const sz = 0.8 + rand() * 0.7;
+    dummy.position.set(s[0], s[1] - 0.5, s[2]); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.set(sz, (s[3] ? 4 : 5) * sz, sz); dummy.updateMatrix();
+    trunks.setMatrixAt(i, dummy.matrix);
+  });
+  const addTree = t => { TREES.push(t); const k = cellKey(t.x, t.z); if (!TREE_GRID.has(k)) TREE_GRID.set(k, []); TREE_GRID.get(k).push(t); };
+  broad.forEach((s, i) => {
+    const sz = 0.8 + rand() * 0.7, cy = s[1] + 5.5 * sz + 2.5;
+    dummy.position.set(s[0], cy, s[2]); dummy.rotation.set(rand(), rand() * 6, rand()); dummy.scale.set(5 * sz, 4.4 * sz, 5 * sz); dummy.updateMatrix();
+    canopy.setMatrixAt(i, dummy.matrix);
+    canopy.setColorAt(i, col.setHSL(0.24 + rand() * 0.07, 0.45 + rand() * .15, 0.30 + rand() * 0.1));
+    addTree({ x: s[0], z: s[2], base: cy - 3.5 * sz, top: cy + 3.6 * sz, r: 4.6 * sz, perchY: cy + 3.1 * sz, kind: 'oak' });
+  });
+  pine.forEach((s, i) => {
+    const sz = 0.8 + rand() * 0.6;
+    dummy.position.set(s[0], s[1] + 2, s[2]); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.set(3.2 * sz, 13 * sz, 3.2 * sz); dummy.updateMatrix();
+    cones.setMatrixAt(i, dummy.matrix);
+    cones.setColorAt(i, col.setHSL(0.36 + rand() * 0.05, 0.35, 0.22 + rand() * 0.06));
+    addTree({ x: s[0], z: s[2], base: s[1] + 2.5, top: s[1] + 2 + 13 * sz, r: 2.2 * sz, perchY: s[1] + 2 + 11 * sz, kind: 'pine' });
+  });
+  for (const m of [trunks, canopy, cones]) { m.castShadow = m.receiveShadow = true; scene.add(m); }
+}
+
+// sheep
+{
+  const spots = [];
+  for (let i = 0; i < 4000 && spots.length < 160; i++) {
+    const x = (rand() - .5) * 1800, z = (rand() - .5) * 1800, h = heightAt(x, z);
+    if (h < 4 || h > 70 || Math.hypot(x - VX, z - VZ) < 120 || slopeAt(x, z) < 0.9) continue;
+    if (fbm(x * 0.006 + 30, z * 0.006 - 7, 3) > 0.5) continue;
+    const n = 2 + Math.floor(rand() * 4);
+    for (let k = 0; k < n; k++) spots.push([x + (rand() - .5) * 16, z + (rand() - .5) * 16]);
+  }
+  const bodies = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), toon(0xf6f3ea), spots.length);
+  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.55, 0.7), toon(0x26221f), spots.length);
+  const e = new THREE.Euler(), off = new V3();
+  spots.forEach(([x, z], i) => {
+    const h = heightAt(x, z), yaw = rand() * 6.28;
+    dummy.position.set(x, h + 0.9, z); dummy.rotation.set(0, yaw, 0); dummy.scale.set(0.75, 0.65, 1.0); dummy.updateMatrix(); bodies.setMatrixAt(i, dummy.matrix);
+    off.set(0, 0.15, 1.0).applyEuler(e.set(0, yaw, 0));
+    dummy.position.set(x + off.x, h + 0.75, z + off.z); dummy.rotation.set(0.5, yaw, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); heads.setMatrixAt(i, dummy.matrix);
+  });
+  bodies.castShadow = heads.castShadow = true;
+  scene.add(bodies, heads);
+}
+
+// village with a church; buildings are obstacles you can also land on
+const COLLIDERS = [];
+const windowMat = new THREE.MeshBasicMaterial({ color: 0x55524a });
+{
+  const stone = toon(0xdcd2bb), white = toon(0xefe9dc), slate = toon(0x596072), red = toon(0x9a5a45);
+  const box = new THREE.BoxGeometry(1, 1, 1), roof = new THREE.ConeGeometry(0.75, 1, 4).rotateY(Math.PI / 4);
+  const g = new THREE.Group();
+  const house = (x, z, w, d, hgt, rot, wall, rf) => {
+    const h = heightAt(VX + x, VZ + z), grp = new THREE.Group();
+    const b = new THREE.Mesh(box, wall); b.scale.set(w, hgt, d); b.position.y = hgt / 2; grp.add(b);
+    const r = new THREE.Mesh(roof, rf); r.scale.set(w * 1.38, hgt * 0.75, d * 1.38); r.position.y = hgt + hgt * 0.37; grp.add(r);
+    for (const sx of [-0.25, 0.25]) { const wdw = new THREE.Mesh(box, windowMat); wdw.scale.set(1.1, 1.2, 0.2); wdw.position.set(w * sx, hgt * 0.55, d / 2 + 0.05); grp.add(wdw); }
+    grp.position.set(VX + x, h - 0.3, VZ + z); grp.rotation.y = rot; g.add(grp);
+    COLLIDERS.push({ x: VX + x, z: VZ + z, r: Math.max(w, d) * 0.55, top: h - 0.3 + hgt * 1.35, name: 'roof' });
+  };
+  for (let i = 0; i < 14; i++) {
+    const a = i / 14 * 6.28 + rand() * .3, r = 32 + rand() * 40;
+    house(Math.cos(a) * r, Math.sin(a) * r, 7 + rand() * 4, 9 + rand() * 4, 5 + rand() * 2, -a, rand() < .5 ? stone : white, rand() < .7 ? slate : red);
+  }
+  const ch = new THREE.Group(), h = heightAt(VX, VZ), rot = 0.4;
+  const nave = new THREE.Mesh(box, stone); nave.scale.set(9, 9, 22); nave.position.y = 4.5; ch.add(nave);
+  const nr = new THREE.Mesh(new THREE.CylinderGeometry(0, 1, 1, 4, 1).rotateY(Math.PI / 4), slate); nr.scale.set(9 * .72, 5, 22 * .72); nr.position.y = 11.5; ch.add(nr);
+  const tower = new THREE.Mesh(box, stone); tower.scale.set(7, 22, 7); tower.position.set(0, 11, -13); ch.add(tower);
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(4.6, 18, 4).rotateY(Math.PI / 4), slate); spire.position.set(0, 31, -13); ch.add(spire);
+  ch.position.set(VX, h - 0.3, VZ); ch.rotation.y = rot; g.add(ch);
+  const local = (lz) => ({ x: VX + lz * Math.sin(rot), z: VZ + lz * Math.cos(rot) });
+  for (const lz of [-6, 1, 8]) COLLIDERS.push({ ...local(lz), r: 5.2, top: h + 12, name: 'church roof' });
+  COLLIDERS.push({ ...local(-13), r: 4.6, top: h + 23, name: 'church tower' });
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  scene.add(g);
+}
+function colliderAt(x, z) { for (const c of COLLIDERS) if (Math.hypot(x - c.x, z - c.z) < c.r) return c; return null; }
+function surfaceAt(x, z) { const c = colliderAt(x, z), g = groundAt(x, z); return c ? Math.max(g, c.top) : g; }
+
+// clouds
+const clouds = [];
+const cloudMat = toon(0xffffff, { emissive: 0x7d8a96, emissiveIntensity: 0.35 });
+{
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  for (let i = 0; i < 34; i++) {
+    const c = new THREE.Group(), n = 4 + Math.floor(rand() * 5);
+    for (let k = 0; k < n; k++) {
+      const m = new THREE.Mesh(geo, cloudMat), s = 14 + rand() * 18;
+      m.scale.set(s * 1.4, s * 0.8, s); m.position.set((k - n / 2) * 16 + rand() * 8, rand() * 8, (rand() - .5) * 20); c.add(m);
+    }
+    c.position.set((rand() - .5) * 2600, 520 + rand() * 120, (rand() - .5) * 2600);
+    scene.add(c); clouds.push(c);
+  }
+}
+
+// ---------- birds ----------
+// Birds are low-poly: every triangle is flat-shaded and coloured on its own.
+const birdMat = toon(0xffffff, { vertexColors: true, side: THREE.DoubleSide });
+const fv = new V3(), fnrm = new V3(), fc = new V3();
+function facet(geo, colorFn) {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  g.computeVertexNormals();
+  const P = g.attributes.position, cols = new Float32Array(P.count * 3), c = new THREE.Color();
+  for (let i = 0; i < P.count; i += 3) {
+    fnrm.fromBufferAttribute(g.attributes.normal, i);
+    fc.set(0, 0, 0); for (let k = 0; k < 3; k++) fc.add(fv.fromBufferAttribute(P, i + k)); fc.multiplyScalar(1 / 3);
+    c.setHex(colorFn(fnrm, fc));
+    for (let k = 0; k < 3; k++) cols.set([c.r, c.g, c.b], (i + k) * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  return g;
+}
+function bladeGeo(pts, top, under, edge) {
+  const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.022, bevelEnabled: false }).rotateX(Math.PI / 2);
+  return facet(g, n => n.y > 0.5 ? top : n.y < -0.5 ? under : edge);
+}
+// add points between profile points so belly barring has enough rows
+const densify = pts => pts.flatMap((p, i) => i < pts.length - 1 ? [p, [(p[0] + pts[i + 1][0]) / 2, (p[1] + pts[i + 1][1]) / 2]] : [p]);
+function birdGeos(o) {
+  if (o._geo) return o._geo;
+  const [bx, by, bz] = o.body, r = o.headR;
+  const body = facet(new THREE.LatheGeometry(densify(o.profile).map(([a, b]) => new THREE.Vector2(a, b)), 6).rotateX(Math.PI / 2).scale(bx, by, bz),
+    (n, m) => {
+      if (n.y < -0.3 && m.z > -bz * 0.35) return o.bars && Math.floor((m.z + 1) * 22) % 2 === 0 && m.z < bz * 0.3 ? o.bars : o.belly;
+      return o.mantle && n.y > 0.6 && m.z > -bz * 0.1 ? o.mantle : o.back;
+    });
+  const head = facet(new THREE.IcosahedronGeometry(r, 0).scale(...(o.headShape || [1, 0.92, 1.18])),
+    (n, m) => o.cheek && n.y < -0.15 && m.z > -r * 0.2 ? o.cheek : o.nape && m.z < -r * 0.3 && n.y > 0 ? o.nape : o.head);
+  const bl = o.beakLen || 0.95;
+  const beak = facet(new THREE.ConeGeometry(r * .34, r * bl, 4).rotateX(Math.PI / 2), (n, m) => m.z > r * bl * 0.2 && o.beakTip ? o.beakTip : o.beak);
+  const cere = o.cere ? facet(new THREE.OctahedronGeometry(r * .26, 0).scale(1, .8, .9), () => o.cere) : null;
+  const malar = o.malar ? facet(new THREE.OctahedronGeometry(r * .3, 0).scale(.45, 1.5, .7), () => o.malar) : null;
+  const eye = facet(new THREE.OctahedronGeometry(r * .2, 0), () => 0x0d0d0d);
+  const ring = o.eyeRing ? facet(new THREE.OctahedronGeometry(r * .29, 0), () => o.eyeRing) : null;
+  const neck = o.neck ? facet(new THREE.OctahedronGeometry(r * .42, 0).scale(1, 1.3, 1), () => o.neck) : null;
+  const patch = o.patch ? facet(new THREE.OctahedronGeometry(r * .4, 0).scale(.7, .8, 1.9), () => o.patch) : null;
+  const tail = bladeGeo(o.tail, o.tailTop || o.wing, o.under, o.tip);
+  const inner = bladeGeo(o.inner, o.wing, o.under, o.tip);
+  const outer = bladeGeo(o.outer, o.tip, o.under, o.tip);
+  const legC = o.feet || o.beak;
+  const leg = facet(new THREE.OctahedronGeometry(1, 0).scale(.028, .12, .028), () => legC);
+  const foot = facet(new THREE.OctahedronGeometry(1, 0).scale(.05, .03, .08), () => legC);
+  const talon = facet(new THREE.ConeGeometry(.012, .05, 3).rotateX(Math.PI / 2 + 0.6), () => 0x1a1a1a);
+  return (o._geo = { body, head, beak, cere, malar, eye, ring, neck, patch, tail, inner, outer, leg, foot, talon });
+}
+function makeBird(o) {
+  const G = birdGeos(o), g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
+  const [bx, by, bz] = o.body, r = o.headR;
+  g.add(M(G.body));
+  const head = new THREE.Group(); head.position.set(0, o.headY, o.headZ); g.add(head);
+  head.add(M(G.head));
+  const hz = (o.headShape || [1, 1, 1.18])[2], bl = o.beakLen || 0.95;
+  const beak = M(G.beak); beak.position.set(0, -r * .22, r * (hz * .5 + bl * .42)); beak.rotation.x = o.hook ?? 0.5; head.add(beak);
+  if (G.cere) { const c = M(G.cere); c.position.set(0, -r * .12, r * hz * .9); head.add(c); }
+  for (const s of [-1, 1]) {
+    const e = M(G.eye); e.position.set(s * r * .74, r * .2, r * .5 * hz / 1.18); head.add(e);
+    if (G.ring) { const ring = M(G.ring); ring.position.copy(e.position).multiplyScalar(0.93); head.add(ring); }
+    if (G.malar) { const ml = M(G.malar); ml.position.set(s * r * .62, -r * .42, r * .38); ml.rotation.x = -0.3; head.add(ml); }
+    if (G.neck) { const nk = M(G.neck); nk.position.set(s * r * .62, -r * .85, -r * .1); head.add(nk); }
+    if (G.patch) { const pt = M(G.patch); pt.position.set(s * r * .66, r * .12, r * .05); head.add(pt); }
+  }
+  const tail = new THREE.Group(); tail.position.set(0, 0, -bz * .4); tail.add(M(G.tail)); g.add(tail);
+  const wings = [];
+  const mkWing = parent => {
+    const root = new THREE.Group(); root.position.set(bx * .3, by * .22, o.wingZ); parent.add(root);
+    root.add(M(G.inner));
+    const elbow = new THREE.Group(); elbow.position.x = o.span; root.add(elbow);
+    elbow.add(M(G.outer));
+    wings.push({ root, elbow });
+  };
+  mkWing(g);
+  const mirror = new THREE.Group(); mirror.scale.x = -1; g.add(mirror); mkWing(mirror);
+  // legs with feet and talons, shown for landing, walking, perching and carrying
+  const legs = new THREE.Group();
+  for (const s of [-1, 1]) {
+    const lg = new THREE.Group(); lg.position.set(s * bx * .3, -by * .35, bz * .05);
+    const l = M(G.leg); l.position.y = -.1; lg.add(l);
+    const f = M(G.foot); f.position.set(0, -.21, .03); lg.add(f);
+    for (const tx of [-.03, 0, .03]) { const t = M(G.talon); t.position.set(tx, -.22, .1); lg.add(t); }
+    legs.add(lg);
+  }
+  legs.visible = false; g.add(legs);
+  g.scale.setScalar(o.scale);
+  g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return { group: g, wings, head, tail, legs, scale: o.scale };
+}
+// Natural wingbeat: the outer wing folds back on the upstroke and stretches out on the downstroke.
+function animWings(b, { ph = 0, amp = 0, tuck = 0, dihedral = 0, flare = 0, droop = 0 } = {}) {
+  const s = Math.sin(ph), up = Math.max(0, Math.cos(ph)), open = 1 - tuck;
+  for (const w of b.wings) {
+    w.root.rotation.z = (amp * s + dihedral + flare * 0.45) * open - tuck * 0.18 - droop;
+    w.root.rotation.y = tuck * 1.05 - flare * 0.45 * open + amp * up * 0.15 * open;
+    w.elbow.rotation.z = (-amp * 0.45 * s - flare * 0.25) * open - droop * 0.5;
+    w.elbow.rotation.y = tuck * 1.55 + amp * up * 0.7 * open;
+  }
+}
+const LOOK = {
+  falcon: { scale: 1.5, body: [.25, .23, 1.05], headR: .13, headY: .085, headZ: .56, wingZ: .14, span: .46,
+    profile: [[0, -.5], [.1, -.36], [.3, -.1], [.48, .16], [.42, .34], [.24, .46], [0, .5]],
+    headShape: [.82, .82, 1.32], beakLen: 1.4, cere: 0xf0c02a, malar: 0x1c2027,
+    inner: [[0, .13], [.46, .05], [.46, -.12], [.36, -.16], [.27, -.13], [.18, -.17], [.09, -.14], [0, -.18]],
+    outer: [[0, .05], [.36, -.04], [.78, -.3], [.62, -.25], [.57, -.3], [.47, -.23], [.41, -.28], [.3, -.2], [.23, -.24], [.12, -.16], [0, -.13]],
+    tail: [[-.05, 0], [-.09, -.38], [-.05, -.45], [-.02, -.4], [0, -.46], [.02, -.4], [.05, -.45], [.09, -.38], [.05, 0]],
+    back: 0x52627a, mantle: 0x46566d, belly: 0xf1e7d1, bars: 0xc9bba0, head: 0x262b34, wing: 0x5a6a82, tip: 0x2f3846, under: 0xd9d2c2,
+    beak: 0x7d8a9e, beakTip: 0x2a2e35, eyeRing: 0xf0c02a, cheek: 0xf1e7d1, feet: 0xf0c02a },
+  pigeon: { scale: 1.35, body: [.26, .26, .64], headR: .1, headY: .11, headZ: .37, wingZ: .06, span: .3,
+    profile: [[0, -.5], [.2, -.3], [.5, .05], [.44, .32], [0, .5]],
+    inner: [[0, .12], [.3, .12], [.3, -.12], [.2, -.15], [.1, -.12], [0, -.14]],
+    outer: [[0, .12], [.32, .04], [.38, -.06], [.31, -.09], [.28, -.15], [.2, -.11], [.15, -.16], [.08, -.11], [0, -.12]],
+    tail: [[-.07, 0], [-.1, -.28], [-.04, -.24], [0, -.3], [.04, -.24], [.1, -.28], [.07, 0]],
+    back: 0x8b93a3, belly: 0xb8a2ae, head: 0x8b93a3, wing: 0x9aa2b0, tip: 0x3d4048, under: 0xc9cdd6, beak: 0xe8c070, neck: 0xffffff, feet: 0xd77a8a },
+  teal: { scale: 1.25, body: [.26, .23, .64], headR: .1, headY: .1, headZ: .38, wingZ: .06, span: .3,
+    profile: [[0, -.5], [.22, -.3], [.5, .02], [.46, .3], [0, .5]],
+    inner: [[0, .1], [.3, .07], [.3, -.08], [.18, -.11], [0, -.1]],
+    outer: [[0, .07], [.36, 0], [.44, -.07], [.33, -.06], [.28, -.1], [.16, -.07], [0, -.08]],
+    tail: [[-.06, 0], [-.07, -.18], [0, -.22], [.07, -.18], [.06, 0]],
+    back: 0x8d8f8a, belly: 0xdcd2bf, head: 0x8a3b22, wing: 0x7d7f78, tip: 0x2c6e52, under: 0xcfc8b8, beak: 0x333333, patch: 0x2d7a4a, feet: 0x8a8a80 },
+  crow: { scale: 1.45, body: [.24, .24, .66], headR: .11, headY: .1, headZ: .4, wingZ: .07, span: .32, headShape: [.9, .9, 1.25], beakLen: 1.6, hook: 0.15,
+    profile: [[0, -.5], [.2, -.3], [.48, .05], [.42, .32], [0, .5]],
+    inner: [[0, .12], [.32, .1], [.32, -.14], [.2, -.16], [.1, -.13], [0, -.15]],
+    outer: [[0, .1], [.3, .06], [.42, -.02], [.36, -.04], [.45, -.08], [.34, -.09], [.41, -.13], [.28, -.13], [.2, -.16], [0, -.14]],
+    tail: [[-.07, 0], [-.11, -.3], [0, -.34], [.11, -.3], [.07, 0]],
+    back: 0x1e2026, belly: 0x2a2c33, head: 0x17181c, wing: 0x23262c, tip: 0x111214, under: 0x30333a, beak: 0x2b2b2b, feet: 0x222222 },
+  eagle: { scale: 2.7, body: [.3, .28, .95], headR: .14, headY: .1, headZ: .52, wingZ: .12, span: .55, headShape: [.85, .85, 1.3], beakLen: 1.3,
+    profile: [[0, -.5], [.15, -.34], [.42, -.05], [.48, .2], [.36, .38], [0, .5]],
+    inner: [[0, .16], [.55, .14], [.55, -.18], [.4, -.22], [.25, -.19], [.1, -.23], [0, -.22]],
+    outer: [[0, .14], [.3, .12], [.5, .06], [.42, .02], [.58, -.02], [.44, -.05], [.57, -.1], [.42, -.12], [.5, -.17], [.3, -.18], [0, -.18]],
+    tail: [[-.08, 0], [-.12, -.38], [0, -.42], [.12, -.38], [.08, 0]],
+    back: 0x4a3626, belly: 0x3d2c20, head: 0x4a3626, nape: 0xc28a3a, wing: 0x4f3a28, tip: 0x231a13, under: 0x5c4632,
+    beak: 0x3a3a3a, beakTip: 0x1e1e1e, cere: 0xe8b830, feet: 0xe8b830 },
+};
+const PREY = {
+  pigeon: { name: 'Wood pigeon', xp: 40, speed: 15, flee: 23, alert: 45, feathers: [0x9aa2b0, 0xb8a2ae, 0xe9e9ee], food: 45 },
+  teal: { name: 'Teal', xp: 90, speed: 20, flee: 30, alert: 60, feathers: [0x8d8f8a, 0xdcd2bf, 0x2c6e52], food: 55 },
+};
+
+// ---------- eyrie ----------
+const EZ = -180, EX = riverX(EZ) - CLIFF - 22, EY = heightAt(EX, EZ);
+const EYRIE = new V3(EX, EY, EZ);
+const chicks = [];
+let chickHop = 0;
+{
+  const g = new THREE.Group(); g.position.copy(EYRIE);
+  const nest = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.6, 6, 14).rotateX(Math.PI / 2), toon(0x7a5a3a)); nest.position.y = 0.4; g.add(nest);
+  const fill = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.2, 0.5, 12), toon(0x5a4129)); fill.position.y = 0.3; g.add(fill);
+  const rockG = new THREE.DodecahedronGeometry(1, 0), rockM = toon(0x8f887c);
+  for (let i = 0; i < 7; i++) { const r = new THREE.Mesh(rockG, rockM), a = i / 7 * 6.28; r.scale.setScalar(1 + rand() * 1.6); r.position.set(Math.cos(a) * 4.2, 0.3, Math.sin(a) * 4.2); g.add(r); }
+  const fluff = new THREE.IcosahedronGeometry(0.5, 0), fluffM = toon(0xfbf8f1), beakM = toon(0x30343b), eyeM = toon(0x0d0d0d);
+  for (let i = 0; i < 3; i++) {
+    const c = new THREE.Group(); c.position.set((i - 1) * 0.75, 0.7, (i % 2) * 0.4 - 0.2); c.rotation.y = Math.PI / 2 + (i - 1) * 0.4;
+    const b = new THREE.Mesh(fluff, fluffM); b.scale.set(.75, .7, .75); c.add(b);
+    const hd = new THREE.Group(); hd.position.set(0, .5, .18); c.add(hd);
+    const hm = new THREE.Mesh(fluff, fluffM); hm.scale.setScalar(.45); hd.add(hm);
+    const bk = new THREE.Mesh(new THREE.ConeGeometry(.06, .16, 4).rotateX(Math.PI / 2), beakM); bk.position.set(0, -.03, .24); hd.add(bk);
+    for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.OctahedronGeometry(.05, 0), eyeM); e.position.set(s * .13, .06, .16); hd.add(e); }
+    g.add(c); chicks.push({ g: c, hd, ph: i * 1.7 });
+  }
+  g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  g.scale.setScalar(1.3);
+  scene.add(g);
+}
+const beacon = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 340, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xf0c02a, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
+beacon.position.set(EX, EY + 170, EZ); beacon.visible = false; scene.add(beacon);
+
+// ---------- thermals ----------
+const THERMALS = [
+  [EX + 160, EZ + 90], [riverX(-520) + 260, -520], [riverX(330) + 360, 330], [riverX(680) - 170, 680], [riverX(-820) + 120, -820], [riverX(60) - 210, 60]
+].map(([x, z]) => ({ x, z, r: 42, lift: 7, top: THIN_AIR - 10, base: groundAt(x, z) }));
+const MOTES = 140;
+const moteGeo = new THREE.BufferGeometry();
+const motePos = new Float32Array(THERMALS.length * MOTES * 3), moteData = [];
+THERMALS.forEach(t => { for (let i = 0; i < MOTES; i++) moteData.push({ t, a: rand() * 6.28, r: Math.sqrt(rand()) * t.r, y: t.base + rand() * (t.top - t.base), s: 4 + rand() * 4 }); });
+moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
+const motes = new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: 0xffeab0, size: 1.8, transparent: true, opacity: 0.65, depthWrite: false }));
+motes.frustumCulled = false;
+scene.add(motes);
+function updateThermals(dt) {
+  motes.material.opacity = 0.65 * (1 - nightF * 0.8);
+  moteData.forEach((m, i) => {
+    m.y += m.s * dt; m.a += dt * 0.7;
+    if (m.y > m.t.top) m.y = m.t.base + 2;
+    const rr = m.r * (0.6 + 0.4 * (m.y - m.t.base) / (m.t.top - m.t.base));
+    motePos[i * 3] = m.t.x + Math.cos(m.a) * rr; motePos[i * 3 + 1] = m.y; motePos[i * 3 + 2] = m.t.z + Math.sin(m.a) * rr;
+  });
+  moteGeo.attributes.position.needsUpdate = true;
+}
+
+// ---------- time of day ----------
+const HOUR = 40;                       // real seconds per game hour (a full day is 16 minutes)
+const TOD = { hour: 7, day: 1, scale: 1 };
+let nightF = 0;
+const SKY = {
+  dayTop: new THREE.Color(0x3f8fd4), dayHor: new THREE.Color(0xd3e9ef), duskTop: new THREE.Color(0x47609c), duskHor: new THREE.Color(0xf2a774),
+  nightTop: new THREE.Color(0x060b1f), nightHor: new THREE.Color(0x18233f),
+  hemiDay: new THREE.Color(0xc4e4ff), hemiNight: new THREE.Color(0x5a70b0), gDay: new THREE.Color(0x6a8a48), gNight: new THREE.Color(0x1a2030),
+  sunCol: new THREE.Color(0xfff0d2), duskCol: new THREE.Color(0xffa060), moonCol: new THREE.Color(0x9fb4ff),
+  winOff: new THREE.Color(0x55524a), winOn: new THREE.Color(0xffc861), cloudDay: new THREE.Color(0xffffff), cloudNight: new THREE.Color(0x46506e),
+};
+function updateTime(dt) {
+  const before = TOD.hour;
+  TOD.hour += dt * TOD.scale / HOUR;
+  if (TOD.hour >= 24) { TOD.hour -= 24; TOD.day++; }
+  if (game.state === 'play') {
+    if (before < 20 && TOD.hour >= 20) toast('Night is falling. Find a safe place to sleep: a tree or your nest.', 'gold', 4500);
+    if (before < 6 && TOD.hour >= 6 && F.mode !== 'sleep') toast('Dawn. Time to hunt!', 'gold');
+  }
+  const a = (TOD.hour - 6) / 12 * Math.PI;
+  SUN_DIR.set(Math.cos(a) * 0.85, Math.sin(a), 0.35).normalize();
+  MOON_DIR.set(-Math.cos(a) * 0.7, -Math.sin(a) * 0.9 + 0.2, -0.3).normalize();
+  const elev = SUN_DIR.y;
+  nightF = 1 - smooth(-0.12, 0.12, elev);
+  const dusk = clamp(1 - Math.abs(elev) / 0.28, 0, 1);
+  skyU.top.value.copy(SKY.dayTop).lerp(SKY.nightTop, nightF).lerp(SKY.duskTop, dusk * 0.55);
+  skyU.horizon.value.copy(SKY.dayHor).lerp(SKY.nightHor, nightF).lerp(SKY.duskHor, dusk * 0.7);
+  skyU.night.value = nightF;
+  scene.fog.color.copy(skyU.horizon.value);
+  hemi.intensity = lerp(1.05, 0.38, nightF);
+  hemi.color.copy(SKY.hemiDay).lerp(SKY.hemiNight, nightF); hemi.groundColor.copy(SKY.gDay).lerp(SKY.gNight, nightF);
+  if (elev > -0.03) { sun.intensity = 2.1 * smooth(-0.03, 0.2, elev); sun.color.copy(SKY.sunCol).lerp(SKY.duskCol, dusk * 0.7); LIGHT_DIR.copy(SUN_DIR); }
+  else { sun.intensity = 0.6 * nightF; sun.color.copy(SKY.moonCol); LIGHT_DIR.copy(MOON_DIR); }
+  stars.material.opacity = nightF * 0.9;
+  windowMat.color.copy(SKY.winOff).lerp(SKY.winOn, nightF);
+  cloudMat.color.copy(SKY.cloudDay).lerp(SKY.cloudNight, nightF); cloudMat.emissiveIntensity = 0.35 * (1 - nightF);
+}
+const fmtTime = h => String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.floor((h % 1) * 60)).padStart(2, '0');
+const partOfDay = h => h < 5 ? 'Night' : h < 7 ? 'Dawn' : h < 12 ? 'Morning' : h < 17 ? 'Afternoon' : h < 20 ? 'Evening' : 'Night';
+
+// ---------- settings, progress and saves ----------
+const SETTINGS_KEY = 'talon-settings-v1', AUTO_KEY = 'talon-auto-v2', SLOT_KEY = n => 'talon-slot-v2-' + n;
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+};
+const settings = { invert: false, muted: false, autoLevel: false, ...(store.get(SETTINGS_KEY) || {}) };
+const saveSettings = () => store.set(SETTINGS_KEY, settings);
+const blankStats = () => ({ pigeon: 0, teal: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
+let prog = { xp: 0, mission: 0, stats: blankStats(), done: false };
+const stats = () => prog.stats;
+
+const LEVELS = [
+  { xp: 0, name: 'Fledgling' }, { xp: 120, name: 'Juvenile', skill: 'keen' }, { xp: 320, name: 'Hunter', skill: 'wings' },
+  { xp: 600, name: 'Sky Master', skill: 'arrow' }, { xp: 950, name: 'Lord of the Valley', skill: 'grip' }
+];
+const SKILLS = {
+  keen: { name: 'Keen Eyes', desc: 'Spot prey from 450 m away instead of 250 m.' },
+  wings: { name: 'Strong Wings', desc: 'Flapping is 30% stronger and you hold more energy.' },
+  arrow: { name: 'Living Arrow', desc: 'A tighter tuck raises your top stoop speed to about 390 km/h.' },
+  grip: { name: 'Iron Grip', desc: 'Your talons reach further and hold on better, so more strikes succeed.' },
+};
+const levelIdx = () => { let l = 0; LEVELS.forEach((L, i) => { if (prog.xp >= L.xp) l = i; }); return l; };
+const has = k => LEVELS.slice(0, levelIdx() + 1).some(L => L.skill === k);
+
+const FACTS = {
+  thermal: 'Birds of prey ride thermals, columns of warm rising air, to climb high without flapping. It saves a lot of energy.',
+  landing: 'Before landing, birds of prey "flare": they spread their wings and tail wide like air brakes and swing their feet forward.',
+  stoop: 'Peregrines are the fastest animals on Earth. In a hunting dive, called a stoop, they have been measured at over 320 km/h (200 mph).',
+  pigeon: 'Pigeons are one of the peregrine\'s favourite foods in Britain. Peregrines almost always catch other birds in mid-air.',
+  chicks: 'Peregrine chicks are called eyasses. They hatch covered in fluffy white down and make their first flight at about six weeks old.',
+  drink: 'Peregrines get most of their water from their prey, but they do drink and bathe in streams and pools, especially in hot weather.',
+  talons: 'A peregrine hits its prey with its feet balled up like a fist, then grabs with its talons. A notch on its beak, the "tomial tooth", finishes the job quickly.',
+  sleep: 'Peregrines hunt by day. At night they roost somewhere sheltered, like a cliff ledge, a tall building or a tree, often close to their nest.',
+  ddt: 'In the 1960s British peregrines nearly disappeared because of a pesticide called DDT. After it was banned they recovered, and today some even nest on cathedrals, like Salisbury and Norwich.',
+  tiercel: 'Female peregrines are about a third bigger than males. A male is called a tiercel, from an old word meaning "a third".',
+  eagle: 'Golden eagles are one of Britain\'s biggest birds of prey, with wings over 2 m across. They live mostly in the Scottish Highlands and will attack other raptors.',
+  crows: 'Crows "mob" birds of prey: they gang up, call loudly and dive at them to chase them away from their nests.',
+  fox: 'Foxes will happily eat a bird that lands on the ground. That is one reason birds of prey prefer to rest high up on cliffs and in trees.',
+};
+const MISSIONS = [
+  { title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact: 'thermal' },
+  { title: 'Touch down', text: () => `Slow below 60 km/h, ${KEY.up} to flare, then land gently on the ground, a tree top or your nest.`, done: s => s.landings >= 1, fact: 'landing' },
+  { title: 'The stoop', text: () => `Climb high, then hold ${KEY.dive} to fold your wings and dive faster than 180 km/h.`, done: s => s.topSpeed >= 180, fact: 'stoop' },
+  { title: 'First catch', text: () => 'Catch a wood pigeon. Strike fast, from above or behind, or it may dodge you.', done: s => s.pigeon >= 1, fact: 'pigeon' },
+  { title: 'Hungry mouths', text: () => 'Carry your catch to your eyrie on the western cliffs (gold beam).', done: s => s.fed >= 1, fact: 'chicks' },
+  { title: 'Thirsty work', text: () => `Land on the river bank, walk to the water's edge and press ${KEY.act} to drink.`, done: s => s.drinks >= 1, fact: 'drink' },
+  { title: 'River hunter', text: () => 'Catch a teal, a quick little duck that skims low over the river.', done: s => s.teal >= 1, fact: 'talons' },
+  { title: 'Safe roost', text: () => `Land in a tree or your nest and press ${KEY.sleep} to sleep.`, done: s => s.sleeps >= 1, fact: 'sleep' },
+  { title: 'Living arrow', text: () => 'Make a Stoop Strike: catch prey while diving faster than 200 km/h.', done: s => s.stoops >= 1, fact: 'ddt' },
+  { title: 'Lord of the Valley', text: () => 'Feed your chicks 5 times in total.', done: s => s.fed >= 5, fact: 'tiercel' },
+];
+
+// ---------- player falcon ----------
+const falcon = makeBird(LOOK.falcon);
+scene.add(falcon.group);
+falcon.group.rotation.order = 'YXZ';
+const LEG = 0.5;  // how high the body sits above the ground when standing
+const F = {
+  pos: new V3(), prev: new V3(), fwd: new V3(0, 0, 1), yaw: 0, pitch: 0, roll: 0, speed: 22, tuck: 0, flare: 0, flapPh: 0,
+  mode: 'perch', perchType: 'nest', tree: null, stunT: 0, moving: false, drinkT: 0, carry: null,
+  health: 100, energy: 100, food: 75, water: 75, rest: 85, exhausted: false,
+  inThermal: false, thin: false, stall: false, hidden: false, flapSnd: 0, edgeWarned: false,
+};
+const maxEnergy = () => has('wings') ? 130 : 100;
+const energyCap = () => maxEnergy() * (F.rest < 10 ? 0.5 : 1) * (F.health < 35 ? 0.7 : 1);
+const atNest = () => (F.mode === 'perch' || F.mode === 'sleep') && F.perchType === 'nest';
+
+// ---------- prey ----------
+const prey = [], flocks = [];
+function pickTarget(f) {
+  f.timer = 0;
+  if (f.type === 'teal') {
+    const z = clamp(f.home.z + (rand() - .5) * 2 * f.radius, -950, 950);
+    f.target.set(riverX(z), f.altMin + rand() * (f.altMax - f.altMin), z);
+  } else {
+    const a = rand() * 6.28, r = rand() * f.radius;
+    const x = clamp(f.home.x + Math.cos(a) * r, -950, 950), z = clamp(f.home.z + Math.sin(a) * r, -950, 950);
+    f.target.set(x, groundAt(x, z) + f.altMin + rand() * (f.altMax - f.altMin), z);
+  }
+}
+function addFlock(type, home, radius, altMin, altMax, n) {
+  const f = { type, home, radius, altMin, altMax, target: new V3(), timer: 0, members: [] };
+  pickTarget(f);
+  for (let i = 0; i < n; i++) {
+    const b = makeBird(LOOK[type]);
+    const p = { type, b, flock: f, pos: f.target.clone().add(new V3((rand() - .5) * 30, 0, (rand() - .5) * 30)), vel: new V3(rand() - .5, 0, rand() - .5).setLength(PREY[type].speed),
+      offset: new V3((rand() - .5) * 16, (rand() - .5) * 6, (rand() - .5) * 16), phase: rand() * 6, state: 'fly', fleeT: 0, dodgeT: 0, respawn: 0, jink: 0, bank: 0, lastYaw: 0, glideT: 0 };
+    scene.add(b.group); f.members.push(p); prey.push(p);
+  }
+  flocks.push(f);
+}
+addFlock('pigeon', new V3(VX, 0, VZ), 220, 25, 70, 5);
+addFlock('pigeon', new V3(VX + 40, 0, VZ - 300), 260, 30, 80, 5);
+addFlock('pigeon', new V3(riverX(-450) + 250, 0, -450), 280, 30, 90, 5);
+addFlock('pigeon', new V3(riverX(650) + 120, 0, 650), 260, 25, 80, 4);
+addFlock('pigeon', new V3(riverX(-50) - 180, 0, -50), 200, 40, 90, 4);
+addFlock('teal', new V3(0, 0, -300), 450, 5, 16, 4);
+addFlock('teal', new V3(0, 0, 450), 450, 5, 16, 4);
+
+function updatePrey(dt, playing) {
+  const roosting = nightF > 0.6;
+  for (const f of flocks) {
+    f.timer += dt;
+    const live = f.members.filter(p => p.state === 'fly');
+    if (live.length) {
+      tA.set(0, 0, 0); live.forEach(p => tA.add(p.pos)); tA.multiplyScalar(1 / live.length);
+      if (tA.distanceTo(f.target) < 40 || f.timer > 28) pickTarget(f);
+    }
+  }
+  for (const p of prey) {
+    if (p.state === 'dead') { p.respawn -= dt; if (p.respawn <= 0) respawnPrey(p); continue; }
+    if (p.state === 'carried') continue;
+    // pigeons roost at night; ducks stay active
+    if (p.type === 'pigeon' && roosting && p.state === 'fly' && p.pos.distanceTo(F.pos) > 120) { p.state = 'roost'; p.b.group.visible = false; continue; }
+    if (p.state === 'roost') { if (!roosting) respawnPrey(p); continue; }
+    const T = PREY[p.type];
+    p.dodgeT = Math.max(0, p.dodgeT - dt);
+    tA.subVectors(p.pos, F.pos); const d = tA.length();
+    if (playing && F.mode === 'fly' && d < T.alert) p.fleeT = Math.max(p.fleeT, 2.6);
+    if (p.fleeT > 0) {
+      p.fleeT -= dt; p.jink += dt;
+      tA.normalize().multiplyScalar(T.flee);
+      tA.x += Math.sin(p.jink * 5 + p.phase) * 7; tA.z += Math.cos(p.jink * 4 + p.phase) * 7; tA.y = tA.y * 0.3 - 3;
+    } else {
+      tA.copy(p.flock.target).add(p.offset).sub(p.pos);
+      tA.multiplyScalar(T.speed / Math.max(tA.length(), 1));
+      if (tA.length() < T.speed * 0.6) tA.setLength(T.speed * 0.6);
+    }
+    p.vel.lerp(tA, 1 - Math.exp(-dt * (p.fleeT > 0 ? 3 : 1.3)));
+    const g = groundAt(p.pos.x, p.pos.z);
+    if (p.pos.y < g + 4) p.vel.y = Math.max(p.vel.y, (g + 4 - p.pos.y) * 3);
+    if (p.pos.y > 420) p.vel.y = Math.min(p.vel.y, 0);
+    if (Math.hypot(p.pos.x, p.pos.z) > LIMIT) { tB.set(-p.pos.x, 0, -p.pos.z).setLength(6 * dt); p.vel.add(tB); }
+    p.pos.addScaledVector(p.vel, dt);
+    // orientation with banking into turns
+    const yaw = Math.atan2(p.vel.x, p.vel.z), yawRate = wrapAngle(yaw - p.lastYaw) / Math.max(dt, 1e-3); p.lastYaw = yaw;
+    p.bank = damp(p.bank, clamp(-yawRate * 0.35, -0.9, 0.9), 4, dt);
+    p.b.group.position.copy(p.pos);
+    p.b.group.lookAt(tC.copy(p.pos).add(p.vel));
+    p.b.group.rotateZ(p.bank);
+    animatePrey(p, dt);
+  }
+}
+function animatePrey(p, dt) {
+  const fleeing = p.fleeT > 0;
+  if (p.type === 'pigeon') {
+    // pigeons flap steadily, then sail briefly with wings raised in a shallow V
+    p.glideT -= dt;
+    if (p.glideT < -4 - (p.phase % 3)) p.glideT = 1.2;
+    if (!fleeing && p.glideT > 0) { animWings(p.b, { dihedral: 0.35 }); return; }
+    p.phase += dt * (fleeing ? 16 : 10);
+    animWings(p.b, { ph: p.phase, amp: fleeing ? 1.0 : 0.85 });
+  } else {
+    // ducks whirr with fast, shallow beats
+    p.phase += dt * (fleeing ? 26 : 21);
+    animWings(p.b, { ph: p.phase, amp: 0.55, dihedral: 0.05 });
+  }
+}
+function respawnPrey(p) {
+  const f = p.flock;
+  tA.copy(f.target).add(p.offset);
+  if (tA.distanceTo(F.pos) < 220) { pickTarget(f); p.respawn = 4; p.state = p.state === 'roost' ? 'roost' : 'dead'; return; }
+  if (p.b.group.parent !== scene) scene.add(p.b.group);
+  p.b.group.scale.setScalar(p.b.scale); p.b.group.visible = true; p.b.legs.visible = false;
+  p.pos.copy(tA); p.vel.set(rand() - .5, 0, rand() - .5).setLength(PREY[p.type].speed); p.state = 'fly'; p.fleeT = 0; p.dodgeT = 0;
+}
+
+// ---------- threats ----------
+function steer(o, target, speed, turn, dt) { tB.subVectors(target, o.pos).setLength(speed); o.vel.lerp(tB, 1 - Math.exp(-turn * dt)); }
+function orientFlyer(o, dt) {
+  const yaw = Math.atan2(o.vel.x, o.vel.z), yawRate = wrapAngle(yaw - (o.lastYaw || 0)) / Math.max(dt, 1e-3); o.lastYaw = yaw;
+  o.bank = damp(o.bank || 0, clamp(-yawRate * 0.5, -0.8, 0.8), 3, dt);
+  o.b.group.position.copy(o.pos); o.b.group.lookAt(tC.copy(o.pos).add(o.vel)); o.b.group.rotateZ(o.bank);
+}
+// golden eagle: patrols the western moors by day and hunts you if it spots you in the air
+const eagle = { b: makeBird(LOOK.eagle), pos: new V3(), vel: new V3(10, 0, 0), state: 'patrol', t: 0, cool: 40, huntT: 0, ph: 0, center: new V3(riverX(-600) - 470, 400, -600) };
+eagle.pos.copy(eagle.center).add(new V3(260, 0, 0));
+scene.add(eagle.b.group);
+function updateEagle(dt) {
+  const E = eagle; E.t += dt; E.cool -= dt;
+  const awake = nightF < 0.5;
+  E.b.group.visible = awake;
+  if (!awake) { if (E.state === 'hunt') E.state = 'leave'; return; }
+  const d = E.pos.distanceTo(F.pos);
+  const playing = game.state === 'play';
+  const exposed = playing && F.mode === 'fly' && !F.hidden && Math.hypot(F.pos.x - EX, F.pos.z - EZ) > 45;
+  if (E.state === 'patrol') {
+    const a = E.t * 0.07;
+    tA.set(E.center.x + Math.cos(a) * 260, E.center.y + Math.sin(E.t * 0.2) * 20, E.center.z + Math.sin(a) * 260);
+    steer(E, tA, 16, 0.8, dt);
+    if (exposed && d < 280 && E.cool <= 0) {
+      E.state = 'hunt'; E.huntT = 0;
+      toast('A golden eagle is hunting you! Stoop away fast or hide in the trees.', 'bad', 4000); sfx.eagle(); showFactOnce('eagle');
+    }
+  } else if (E.state === 'hunt') {
+    E.huntT += dt;
+    tA.copy(F.pos).addScaledVector(F.fwd, F.speed * 0.35);
+    steer(E, tA, 31, 2.2, dt);
+    if (d < 3.6 && F.mode === 'fly') {
+      injure(40, 'The golden eagle struck you!');
+      if (F.carry) { toast('The eagle stole your prey!', 'bad'); dropCarry(); }
+      F.speed = 10; F.pitch = -0.3; E.state = 'leave'; E.cool = 90;
+    } else if (!exposed || E.huntT > 25 || d > 450) {
+      E.state = 'leave'; E.cool = 45;
+      if (playing && d < 450) toast('The eagle gave up the chase.', 'gold');
+    }
+  } else {
+    steer(E, E.center, 18, 1, dt);
+    if (E.pos.distanceTo(E.center) < 300) E.state = 'patrol';
+  }
+  E.pos.addScaledVector(E.vel, dt);
+  const g = groundAt(E.pos.x, E.pos.z); if (E.pos.y < g + 8) E.pos.y = g + 8;
+  orientFlyer(E, dt);
+  // eagles soar on flat, fingered wings and only flap hard in a chase
+  if (E.state === 'hunt') { E.ph += dt * 7; animWings(E.b, { ph: E.ph, amp: 0.55 }); }
+  else { E.ph += dt * 5; const flapping = Math.sin(E.t * 0.15) > 0.85; animWings(E.b, flapping ? { ph: E.ph, amp: 0.4 } : { dihedral: 0.12 + Math.sin(E.t * 0.8) * 0.03 }); }
+}
+// crows: a gang that lives in the woods and mobs you when you fly slowly near them
+let crowHome = new V3(riverX(80) + 230, 0, 80);
+{ let best = null, bd = Infinity; for (const t of TREES) { const d = Math.hypot(t.x - crowHome.x, t.z - crowHome.z); if (d < bd) { bd = d; best = t; } } if (best) crowHome.set(best.x, best.top, best.z); }
+const crowFlock = { state: 'idle', cool: 10, fastT: 0, peckT: 0, mobT: 0 };
+const crows = [...Array(5)].map((_, i) => { const c = { b: makeBird(LOOK.crow), pos: crowHome.clone().add(new V3(i * 4, 20, 0)), vel: new V3(8, 0, 0), ph: i }; scene.add(c.b.group); return c; });
+function updateCrows(dt) {
+  const C = crowFlock; C.cool -= dt;
+  const kmh = F.speed * 3.6, playing = game.state === 'play';
+  tA.set(0, 0, 0); crows.forEach(c => tA.add(c.pos)); tA.multiplyScalar(1 / crows.length);
+  const dist = tA.distanceTo(F.pos);
+  const roost = nightF > 0.6 && C.state === 'idle';
+  crows.forEach(c => { c.b.group.visible = !roost; });
+  if (roost) return;
+  if (C.state === 'idle') {
+    if (playing && F.mode === 'fly' && dist < 90 && kmh < 70 && !F.hidden && C.cool <= 0) {
+      C.state = 'mob'; C.fastT = 0; C.mobT = 0; C.peckT = 1.5;
+      toast('Crows are mobbing you! Fly faster than 70 km/h to shake them off.', 'bad', 4000); sfx.caw(); showFactOnce('crows');
+    }
+  } else {
+    C.mobT += dt;
+    if (kmh > 70) C.fastT += dt; else C.fastT = Math.max(0, C.fastT - dt * 0.5);
+    if (!playing || C.fastT > 2.5 || dist > 170 || F.hidden || atNest() || C.mobT > 45) {
+      C.state = 'idle'; C.cool = 30;
+      if (playing) toast('You shook off the crows.', 'gold');
+    } else {
+      C.peckT -= dt;
+      if (C.peckT <= 0) {
+        C.peckT = 1.4 + rand();
+        if (crows.some(c => c.pos.distanceTo(F.pos) < 7) && kmh < 70) {
+          F.health -= 2; F.energy = Math.max(0, F.energy - 5); sfx.caw(); hurtPulse(0.35);
+          burst(F.pos, tB.set(0, 0, 0), [0x5a6a82, 0xf1e7d1], 4, 0);
+        }
+      }
+    }
+  }
+  crows.forEach((c, i) => {
+    if (C.state === 'mob') { const a = game.t * 2.2 + i * 1.26; tA.set(F.pos.x + Math.cos(a) * 5, F.pos.y + 1.5 + Math.sin(a * 1.7), F.pos.z + Math.sin(a) * 5); steer(c, tA, 28, 4, dt); }
+    else { const a = game.t * 0.35 + i * 1.26; tA.set(crowHome.x + Math.cos(a) * 25, crowHome.y + 18 + i * 2, crowHome.z + Math.sin(a) * 25); steer(c, tA, 12, 1.5, dt); }
+    c.pos.addScaledVector(c.vel, dt);
+    orientFlyer(c, dt);
+    // crows row along with slow, deep, even beats
+    c.ph += dt * (C.state === 'mob' ? 12 : 7.5);
+    animWings(c.b, { ph: c.ph, amp: 0.7 });
+  });
+}
+// foxes: roam the fields and pounce on a bird that is on the ground
+function makeFox() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
+  const orange = 0xc9652a, white = 0xf3ede2, dark = 0x2a2220;
+  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.55, 0.55, 1.5), n => n.y < -0.4 ? white : orange)); body.position.y = 0.58; g.add(body);
+  const head = new THREE.Group(); head.position.set(0, 0.8, 0.74); g.add(head);
+  head.add(M(facet(new THREE.IcosahedronGeometry(0.22, 0).scale(1, 0.9, 1.1), n => n.y < -0.3 ? white : orange)));
+  const snout = M(facet(new THREE.ConeGeometry(0.1, 0.32, 4).rotateX(Math.PI / 2), (n, m) => m.z > 0.1 ? dark : orange)); snout.position.set(0, -0.04, 0.27); head.add(snout);
+  for (const s of [-1, 1]) {
+    const ear = M(facet(new THREE.ConeGeometry(0.08, 0.2, 4), (n, m) => m.y > 0.03 ? dark : orange)); ear.position.set(s * 0.11, 0.2, -0.02); head.add(ear);
+    const eye = M(facet(new THREE.OctahedronGeometry(0.03, 0), () => 0x111111)); eye.position.set(s * 0.1, 0.05, 0.17); head.add(eye);
+  }
+  const tail = new THREE.Group(); tail.position.set(0, 0.62, -0.68); tail.rotation.x = -0.35; g.add(tail);
+  tail.add(M(facet(new THREE.ConeGeometry(0.17, 0.9, 5).translate(0, 0.45, 0).rotateX(-Math.PI / 2), (n, m) => m.z < -0.62 ? white : orange)));
+  const legs = [];
+  for (const [x, z] of [[-.15, .42], [.15, .42], [-.15, -.42], [.15, -.42]]) {
+    const lg = new THREE.Group(); lg.position.set(x, 0.44, z); g.add(lg);
+    lg.add(M(facet(new THREE.BoxGeometry(0.09, 0.44, 0.09).translate(0, -0.22, 0), () => dark)));
+    legs.push(lg);
+  }
+  g.scale.setScalar(1.15);
+  g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return { g, legs, tail, head };
+}
+const foxes = [[riverX(-300) + 200, -300], [riverX(500) + 260, 500], [riverX(-700) + 180, -700], [riverX(120) + 120, 120]].map(([x, z]) => {
+  const m = makeFox(); scene.add(m.g);
+  return { ...m, home: new V3(x, 0, z), pos: new V3(x, groundAt(x, z), z), yaw: rand() * 6, state: 'wander', target: null, t: 0, cool: 0, lostT: 0, ph: 0 };
+});
+function updateFox(f, dt) {
+  f.cool -= dt; f.t += dt;
+  const playing = game.state === 'play';
+  const d = Math.hypot(F.pos.x - f.pos.x, F.pos.z - f.pos.z);
+  const prey_ = playing && F.mode === 'ground' && !F.hidden;
+  let speed = 0, goal = null;
+  if (f.state === 'wander') {
+    if (!f.target || Math.hypot(f.target.x - f.pos.x, f.target.z - f.pos.z) < 3 || f.t > 20) {
+      for (let k = 0; k < 8; k++) {
+        const a = rand() * 6.28, r = rand() * 170, x = f.home.x + Math.cos(a) * r, z = f.home.z + Math.sin(a) * r;
+        if (heightAt(x, z) > 2) { f.target = new V3(x, 0, z); break; }
+      }
+      f.t = 0;
+    }
+    goal = f.target; speed = 1.8;
+    if (prey_ && d < 90 && f.cool <= 0) { f.state = 'hunt'; f.lostT = 0; toast('A fox is stalking you! Take off!', 'bad', 3500); showFactOnce('fox'); }
+  } else if (f.state === 'hunt') {
+    goal = F.pos; speed = 9.5;
+    if (d < 1.8 && F.mode === 'ground') {
+      injure(30, 'A fox pounced on you!');
+      if (F.carry) { toast('The fox stole your prey!', 'bad'); dropCarry(); }
+      if (F.health > 0 && F.mode === 'ground') { F.mode = 'fly'; F.speed = 10; F.pitch = 0.7; F.pos.y += 1.5; F.stunT = 0; F.tuck = 0; }
+      f.state = 'retreat'; f.cool = 25; f.t = 0;
+    }
+    if (F.mode !== 'ground' || F.hidden) { f.lostT += dt; if (f.lostT > 2) { f.state = 'wander'; f.cool = 8; } } else f.lostT = 0;
+    if (d > 150 || !playing) f.state = 'wander';
+  } else {
+    tA.set(f.pos.x * 2 - F.pos.x, 0, f.pos.z * 2 - F.pos.z); goal = tA; speed = 6;
+    if (f.t > 6) { f.state = 'wander'; f.t = 0; }
+  }
+  if (goal && speed > 0) {
+    const want = Math.atan2(goal.x - f.pos.x, goal.z - f.pos.z);
+    f.yaw += clamp(wrapAngle(want - f.yaw), -4 * dt, 4 * dt);
+    const nx = f.pos.x + Math.sin(f.yaw) * speed * dt, nz = f.pos.z + Math.cos(f.yaw) * speed * dt;
+    if (heightAt(nx, nz) > 0.6) { f.pos.x = nx; f.pos.z = nz; } else { f.target = null; speed = 0; }
+  }
+  f.pos.y = groundAt(f.pos.x, f.pos.z);
+  f.g.position.copy(f.pos); f.g.rotation.y = f.yaw;
+  f.ph += dt * speed * 2.6;
+  f.legs.forEach((l, i) => { l.rotation.x = Math.sin(f.ph + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI / 2 : 0)) * Math.min(speed / 4, 0.7); });
+  f.tail.rotation.y = Math.sin(f.t * 2) * 0.25; f.head.rotation.x = f.state === 'hunt' ? 0.15 : Math.sin(f.t * 0.7) * 0.2;
+}
+
+// ---------- feathers and splashes ----------
+const parts = [];
+{
+  const fg = new THREE.PlaneGeometry(0.24, 0.08), sg = new THREE.SphereGeometry(0.07, 5, 4);
+  const blood = toon(0x8c1d1d);
+  for (let i = 0; i < 200; i++) {
+    const speck = i % 6 === 0;
+    const m = new THREE.Mesh(speck ? sg : fg, speck ? blood : toon(0xffffff, { side: THREE.DoubleSide }));
+    m.visible = false; scene.add(m);
+    parts.push({ m, speck, v: new V3(), spin: new V3(), life: 0 });
+  }
+}
+let partIdx = 0;
+function burst(pos, vel, colors, n = 36, specks = 1) {
+  for (let i = 0; i < n; i++) {
+    let p = parts[partIdx++ % parts.length];
+    if (p.speck && !specks) p = parts[partIdx++ % parts.length];
+    p.m.position.copy(pos); p.m.visible = true; p.life = p.speck ? 2 : 6 + rand() * 3;
+    p.v.set(rand() - .5, rand() - .3, rand() - .5).multiplyScalar(p.speck ? 6 : 10).addScaledVector(vel, 0.25);
+    p.spin.set(rand() * 8, rand() * 8, rand() * 8);
+    if (!p.speck) p.m.material.color.setHex(colors[i % colors.length]);
+    p.m.scale.setScalar(1);
+  }
+}
+function updateParts(dt) {
+  for (const p of parts) {
+    if (p.life <= 0) continue;
+    p.life -= dt;
+    if (p.speck) p.v.y -= 9.8 * dt;
+    else { p.v.multiplyScalar(Math.exp(-2.4 * dt)); p.v.y -= 1.0 * dt; p.v.y = Math.max(p.v.y, -1.6); p.m.position.x += Math.sin(p.life * 3 + p.spin.x) * dt * 0.8; }
+    p.m.position.addScaledVector(p.v, dt);
+    p.m.rotation.x += p.spin.x * dt; p.m.rotation.y += p.spin.y * dt;
+    if (p.life < 1) p.m.scale.setScalar(Math.max(p.life, 0.01));
+    if (p.life <= 0 || p.m.position.y < groundAt(p.m.position.x, p.m.position.z)) { p.life = 0; p.m.visible = false; }
+  }
+}
+
+// ---------- speed lines ----------
+const SL = 70;
+const slGeo = new THREE.BufferGeometry(), slPos = new Float32Array(SL * 6), slData = [];
+for (let i = 0; i < SL; i++) { const a = rand() * 6.28, r = 1.4 + rand() * 3.5; slData.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * .7, z: -rand() * 40 }); }
+slGeo.setAttribute('position', new THREE.BufferAttribute(slPos, 3));
+const speedLines = new THREE.LineSegments(slGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+speedLines.frustumCulled = false;
+camera.add(speedLines);
+function updateSpeedLines(dt) {
+  const kmh = F.speed * 3.6, o = game.state === 'play' && F.mode === 'fly' ? clamp((kmh - 140) / 160, 0, 0.55) : 0;
+  speedLines.material.opacity = o; speedLines.visible = o > 0.01;
+  if (!speedLines.visible) return;
+  const len = 1 + F.speed * 0.05;
+  slData.forEach((s, i) => {
+    s.z += F.speed * 1.4 * dt; if (s.z > -1) s.z -= 40;
+    slPos.set([s.x, s.y, s.z, s.x, s.y, s.z - len], i * 6);
+  });
+  slGeo.attributes.position.needsUpdate = true;
+}
+
+// ---------- audio ----------
+const audio = { ctx: null };
+function initAudio() {
+  if (audio.ctx) { audio.ctx.resume?.(); return; }
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    let last = 0; for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 400;
+    const gain = ctx.createGain(); gain.gain.value = 0;
+    const master = ctx.createGain(); master.gain.value = settings.muted ? 0 : 1;
+    src.connect(lp).connect(gain).connect(master).connect(ctx.destination); src.start();
+    const nb = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate), nd = nb.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+    Object.assign(audio, { ctx, lp, gain, master, noise: nb });
+  } catch (e) { }
+}
+function tone(freq, start, dur, { type = 'sine', vol = 0.15, to = null } = {}) {
+  const a = audio; if (!a.ctx) return;
+  const t = a.ctx.currentTime + start, o = a.ctx.createOscillator(), g = a.ctx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t); if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(a.master); o.start(t); o.stop(t + dur + 0.05);
+}
+function whoosh(vol = 0.12, freq = 700) {
+  const a = audio; if (!a.ctx) return;
+  const s = a.ctx.createBufferSource(), f = a.ctx.createBiquadFilter(), g = a.ctx.createGain();
+  s.buffer = a.noise; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.8; g.gain.value = vol;
+  s.connect(f).connect(g).connect(a.master); s.start();
+}
+const sfx = {
+  kek() { for (let i = 0; i < 5; i++) tone(2300, i * 0.11, 0.08, { type: 'sawtooth', vol: 0.05, to: 1700 }); },
+  chirp() { for (let i = 0; i < 8; i++) tone(3000 + rand() * 900, i * 0.09, 0.07, { vol: 0.07, to: 4200 }); },
+  level() { [523, 659, 784, 1046].forEach((f, i) => tone(f, i * 0.12, 0.35, { type: 'triangle', vol: 0.12 })); },
+  quest() { [659, 880].forEach((f, i) => tone(f, i * 0.1, 0.3, { type: 'triangle', vol: 0.1 })); },
+  thud() { tone(120, 0, 0.3, { type: 'sine', vol: 0.3, to: 50 }); whoosh(0.3, 300); },
+  caw() { tone(520, 0, 0.16, { type: 'sawtooth', vol: 0.08, to: 380 }); tone(500, 0.22, 0.16, { type: 'sawtooth', vol: 0.07, to: 360 }); },
+  eagle() { tone(1500, 0, 0.25, { type: 'triangle', vol: 0.1, to: 2100 }); tone(2000, 0.27, 0.45, { type: 'triangle', vol: 0.09, to: 1100 }); },
+  splash() { whoosh(0.35, 350); whoosh(0.2, 1400); },
+  drink() { [0, 0.35, 0.7].forEach(t => tone(700, t, 0.08, { vol: 0.08, to: 500 })); },
+  miss() { whoosh(0.18, 1100); tone(400, 0, 0.18, { type: 'triangle', vol: 0.06, to: 260 }); },
+};
+function updateAudio() {
+  const a = audio; if (!a.ctx) return;
+  const flying = game.state === 'play' && !game.paused && F.mode === 'fly';
+  const s = F.speed / 110, t = a.ctx.currentTime;
+  a.lp.frequency.setTargetAtTime(220 + (flying ? s : 0) * 2400, t, 0.1);
+  a.gain.gain.setTargetAtTime(flying ? 0.06 + s * 0.55 : 0.02, t, 0.2);
+  a.master.gain.setTargetAtTime(settings.muted ? 0 : 1, t, 0.05);
+}
+
+// ---------- input ----------
+// inp.y: +1 means nose up (climb) in the air and walk forward on the ground
+const keys = {};
+const touch = { x: 0, y: 0, flap: false, dive: false, id: null, ox: 0, oy: 0 };
+let flapHeld = false;
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  if (game.state !== 'play' || e.repeat) return;
+  if (e.code === 'Escape' || e.code === 'KeyP') { togglePause(); return; }
+  if (game.paused) return;
+  if (F.mode === 'sleep') { wake(); return; }
+  if (e.code === 'KeyV' || e.code === 'KeyC') toggleCam();
+  if (e.code === 'KeyE') doAction();
+  if (e.code === 'KeyZ') trySleep();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+let padPrev = {};
+function readInput() {
+  let x = 0, y = 0, flap = false, tuck = false;
+  if (keys.KeyA || keys.ArrowLeft) x -= 1;
+  if (keys.KeyD || keys.ArrowRight) x += 1;
+  if (keys.KeyW || keys.ArrowUp) y += 1;
+  if (keys.KeyS || keys.ArrowDown) y -= 1;
+  if (keys.Space) flap = true;
+  if (keys.ShiftLeft || keys.ShiftRight) tuck = true;
+  x += touch.x; y += touch.y; flap ||= touch.flap; tuck ||= touch.dive;
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const gp of pads) {
+    if (!gp) continue;
+    const dz = v => Math.abs(v) < 0.15 ? 0 : v;
+    x += dz(gp.axes[0] || 0); y -= dz(gp.axes[1] || 0);
+    const b = i => gp.buttons[i]?.pressed;
+    flap ||= b(0); tuck ||= b(1) || b(7) || b(6);
+    if (b(3) && !padPrev[3]) toggleCam();
+    if (b(2) && !padPrev[2]) doAction();
+    if (b(9) && !padPrev[9]) togglePause();
+    padPrev = { 2: b(2), 3: b(3), 9: b(9) };
+    break;
+  }
+  if (settings.invert && F.mode === 'fly') y = -y;
+  const flapPressed = flap && !flapHeld; flapHeld = flap;
+  return { x: clamp(x, -1, 1), y: clamp(y, -1, 1), flap, tuck, flapPressed };
+}
+{
+  const zone = $('stickZone'), stick = $('stick'), knob = $('knob');
+  const home = () => { stick.style.left = ''; stick.style.top = ''; knob.style.transform = ''; touch.x = touch.y = 0; touch.id = null; };
+  zone.addEventListener('pointerdown', e => {
+    if (F.mode === 'sleep') { wake(); return; }
+    touch.id = e.pointerId; touch.ox = e.clientX; touch.oy = e.clientY; zone.setPointerCapture(e.pointerId);
+    stick.style.left = e.clientX + 'px'; stick.style.top = e.clientY + 'px'; e.preventDefault();
+  });
+  zone.addEventListener('pointermove', e => {
+    if (e.pointerId !== touch.id) return;
+    let dx = e.clientX - touch.ox, dy = e.clientY - touch.oy; const L = Math.hypot(dx, dy), R = 55;
+    if (L > R) { dx *= R / L; dy *= R / L; }
+    knob.style.transform = `translate(${dx}px,${dy}px)`;
+    touch.x = dx / R; touch.y = -dy / R;
+  });
+  for (const ev of ['pointerup', 'pointercancel']) zone.addEventListener(ev, e => { if (e.pointerId === touch.id) home(); });
+  const hold = (id, key) => {
+    const el = $(id);
+    el.addEventListener('pointerdown', e => { touch[key] = true; el.classList.add('on'); el.setPointerCapture(e.pointerId); e.preventDefault(); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(ev, () => { touch[key] = false; el.classList.remove('on'); });
+  };
+  hold('bFlap', 'flap'); hold('bDive', 'dive');
+  $('bCam').addEventListener('pointerdown', e => { e.preventDefault(); toggleCam(); });
+  $('bAct').addEventListener('pointerdown', e => { e.preventDefault(); doAction(); });
+  $('sleepScreen').addEventListener('pointerdown', () => wake());
+  document.addEventListener('gesturestart', e => e.preventDefault());
+}
+
+// ---------- game state and messages ----------
+const game = { state: 'menu', paused: false, cam: 'third', t: 0, prevLevel: 0, autoT: 0 };
+function toggleCam() { game.cam = game.cam === 'third' ? 'first' : 'third'; $('camBtn').textContent = 'View: ' + (game.cam === 'third' ? 'behind' : 'eyes'); }
+const toastsEl = $('toasts');
+function toast(msg, cls = '', ms = 2600) {
+  if (game.state !== 'play' && game.state !== 'menu') return;
+  const el = document.createElement('div'); el.className = 'toast ' + cls; el.textContent = msg;
+  toastsEl.appendChild(el); while (toastsEl.children.length > 3) toastsEl.firstChild.remove();
+  setTimeout(() => el.remove(), ms);
+}
+let factTimer = null;
+function showFact(key, head = 'Falcon fact') {
+  $('factHead').textContent = head; $('factText').textContent = FACTS[key]; $('fact').hidden = false;
+  clearTimeout(factTimer); factTimer = setTimeout(() => { $('fact').hidden = true; }, 14000);
+}
+const seenFacts = new Set();
+function showFactOnce(key) { if (seenFacts.has(key)) return; seenFacts.add(key); showFact(key, 'Wild fact'); }
+$('fact').addEventListener('pointerdown', () => { $('fact').hidden = true; });
+function flash(color, strength = 0.5) {
+  const el = $('flash'); el.style.transition = 'none'; el.style.background = color; el.style.opacity = strength;
+  requestAnimationFrame(() => { el.style.transition = 'opacity .6s'; el.style.opacity = 0; });
+}
+let hurtLevel = 0;
+const hurtPulse = v => { hurtLevel = Math.max(hurtLevel, v); };
+const warned = {};
+function warnOnce(key, on, off, msg) { if (on && !warned[key]) { warned[key] = true; toast(msg, 'bad', 4000); } else if (off) warned[key] = false; }
+
+function gainXP(n) {
+  prog.xp += n;
+  const l = levelIdx();
+  if (l > game.prevLevel) {
+    game.prevLevel = l; const L = LEVELS[l];
+    setTimeout(() => {
+      toast(`Level ${l + 1}: ${L.name}`, 'big', 3500);
+      if (L.skill) toast(`New skill: ${SKILLS[L.skill].name}`, 'gold', 4000);
+      sfx.level();
+    }, 600);
+  }
+  persist(); renderStatus();
+}
+function renderStatus() {
+  const l = levelIdx(), L = LEVELS[l], N = LEVELS[l + 1];
+  $('lvlNum').textContent = 'Lv ' + (l + 1); $('lvlName').textContent = L.name;
+  $('xpBar').style.width = N ? ((prog.xp - L.xp) / (N.xp - L.xp) * 100) + '%' : '100%';
+}
+function renderMission() {
+  const m = MISSIONS[prog.mission];
+  if (!m) { $('mNum').textContent = 'complete'; $('mTitle').textContent = 'Free flight'; $('mText').textContent = 'Hunt, explore and keep your chicks fed. Fed so far: ' + stats().fed + '.'; return; }
+  $('mNum').textContent = `${prog.mission + 1} of ${MISSIONS.length}`; $('mTitle').textContent = m.title; $('mText').textContent = m.text();
+}
+function checkMissions() {
+  const m = MISSIONS[prog.mission];
+  if (!m || !m.done(stats())) return;
+  prog.mission++;
+  toast('Quest complete: ' + m.title, 'gold', 3200); sfx.quest();
+  showFact(m.fact);
+  gainXP(60);
+  renderMission();
+  if (prog.mission >= MISSIONS.length && !prog.done) { prog.done = true; persist(); setTimeout(() => { if (game.state === 'play') { game.paused = true; $('complete').hidden = false; } }, 2500); }
+}
+
+// ---------- injuries ----------
+function injure(amount, msg) {
+  F.health -= amount; stats().crashes++;
+  sfx.thud(); flash('rgba(239,106,85,.8)', 0.55); hurtPulse(1);
+  if (F.health <= 0) { collapse(msg); return; }
+  toast(msg + (F.health < 40 ? ' You are injured: rest to heal.' : ''), 'bad', 3500);
+}
+function collapse(msg) {
+  dropCarry();
+  F.health = 40; F.energy = 50; F.food = Math.max(F.food, 30); F.water = Math.max(F.water, 30); F.rest = Math.max(F.rest, 40);
+  perchAt('nest', true); F.exhausted = false; F.stunT = 0;
+  TOD.scale = 1; $('sleepScreen').hidden = true;
+  TOD.hour = (TOD.hour + 3) % 24;
+  flash('rgba(5,9,24,1)', 1);
+  toast(msg + ' You passed out and woke up back at your nest.', 'bad', 5500);
+  persist();
+}
+
+// ---------- catching and carrying ----------
+function distToSeg(p, a, b) {
+  tB.subVectors(b, a); const L2 = tB.lengthSq();
+  const t = L2 ? clamp(tC.subVectors(p, a).dot(tB) / L2, 0, 1) : 0;
+  return tC.copy(a).addScaledVector(tB, t).distanceTo(p);
+}
+// How likely a strike is to hold: speed matters most, then the angle you come in from.
+function strikeOdds(p) {
+  const kmh = F.speed * 3.6;
+  let c = kmh < 50 ? 0.2 : kmh < 100 ? 0.45 : kmh < 170 ? 0.7 : kmh < 220 ? 0.86 : 0.95;
+  tA.copy(p.vel).normalize();
+  const along = F.fwd.dot(tA), fromAbove = -F.fwd.y;
+  let why = '';
+  if (along > 0.4) c += 0.1;
+  if (along < -0.4) { c -= 0.3; why = 'Bad angle! Come from above or behind, not head-on.'; }
+  if (fromAbove > 0.35) c += 0.12;
+  if (p.fleeT > 0) c -= 0.08;
+  if (p.type === 'teal') c -= 0.05;
+  if (has('grip')) c += 0.1;
+  if (F.health < 40) c -= 0.1;
+  if (!why) why = kmh < 100 ? 'Too slow! It dodged. Stoop from above for a cleaner strike.' : 'It jinked away at the last moment!';
+  return { chance: clamp(c, 0.05, 0.97), why };
+}
+function tryCatch() {
+  if (F.carry) return;
+  const R = 3.3 + (has('grip') ? 1.2 : 0);
+  for (const p of prey) {
+    if (p.state !== 'fly' || p.dodgeT > 0) continue;
+    if (distToSeg(p.pos, F.prev, F.pos) < R) {
+      const { chance, why } = strikeOdds(p);
+      if (rand() < chance) catchPrey(p);
+      else {
+        p.dodgeT = 3; p.fleeT = 3.5; stats().misses++;
+        tA.set(F.fwd.z, 0.4, -F.fwd.x).multiplyScalar(rand() < 0.5 ? 12 : -12); p.vel.add(tA);
+        burst(p.pos, p.vel, PREY[p.type].feathers, 5, 0); sfx.miss();
+        toast('Missed! ' + why, 'bad', 3000);
+      }
+      break;
+    }
+  }
+}
+function catchPrey(p) {
+  const T = PREY[p.type], kmh = F.speed * 3.6, stoop = kmh >= 200;
+  const xp = T.xp * (stoop ? 2 : 1);
+  burst(p.pos, p.vel, T.feathers);
+  p.state = 'carried'; F.carry = p;
+  falcon.group.add(p.b.group);
+  p.b.group.position.set(0, -0.48, 0.05); p.b.group.rotation.set(0.25, 0, 0); p.b.group.scale.setScalar(p.b.scale / falcon.scale * 0.95);
+  animWings(p.b, { droop: 0.9 });
+  stats()[p.type]++; if (stoop) stats().stoops++;
+  sfx.kek(); whoosh(0.25, 500);
+  flash('rgba(255,255,255,.9)', 0.35);
+  if (stoop) toast(`STOOP STRIKE! ${T.name} +${xp} XP`, 'big', 3000);
+  else toast(`${T.name} caught! +${xp} XP`, 'gold');
+  gainXP(xp);
+}
+function dropCarry() {
+  const p = F.carry; if (!p) return;
+  falcon.group.remove(p.b.group); p.b.group.visible = false;
+  p.state = 'dead'; p.respawn = 25 + rand() * 15;
+  F.carry = null;
+}
+function eatCarry() {
+  if (!F.carry) return;
+  const T = PREY[F.carry.type];
+  burst(F.pos, tA.copy(F.fwd).multiplyScalar(F.mode === 'fly' ? F.speed : 0), T.feathers, 24);
+  dropCarry();
+  F.food = Math.min(100, F.food + T.food); F.energy = Math.min(energyCap(), F.energy + 30);
+  if (F.energy >= 25) F.exhausted = false;
+  stats().eaten++;
+  toast('Gulp! Food and energy restored.', 'gold'); persist();
+}
+function feedChicks() {
+  dropCarry();
+  stats().fed++; chickHop = 3;
+  sfx.chirp(); toast('Your chicks are fed! +50 XP', 'gold', 3000);
+  gainXP(50);
+}
+
+// ---------- landing, perching, walking, sleeping ----------
+function canDrink() {
+  if (F.mode !== 'ground') return false;
+  for (let i = 0; i < 8; i++) { const a = i / 8 * 6.283; if (heightAt(F.pos.x + Math.cos(a) * 3, F.pos.z + Math.sin(a) * 3) < 0) return true; }
+  return false;
+}
+function actionLabel() {
+  if (F.mode === 'sleep') return 'WAKE';
+  if (F.carry && F.mode !== 'sleep') return 'EAT';
+  if (canDrink()) return 'DRINK';
+  if (F.mode === 'perch') return 'SLEEP';
+  return '';
+}
+function doAction() {
+  if (game.state !== 'play' || game.paused) return;
+  const a = actionLabel();
+  if (a === 'WAKE') wake();
+  else if (a === 'EAT') eatCarry();
+  else if (a === 'DRINK') drink();
+  else if (a === 'SLEEP') trySleep();
+  else if (F.mode === 'ground') toast('Walk to the water\'s edge to drink, or fly to a tree or your nest to sleep.');
+}
+function drink() {
+  F.water = 100; F.drinkT = 1.6; stats().drinks++;
+  sfx.drink(); toast('Ahh, fresh water.', 'gold'); persist();
+}
+function trySleep() {
+  if (F.mode === 'fly') { toast('Land in a tree or your nest first, then sleep.'); return; }
+  if (F.mode === 'ground') { toast('Too dangerous to sleep on the ground! Find a tree or your nest.', 'bad'); return; }
+  if (F.mode !== 'perch') return;
+  if (F.rest > 85 && nightF < 0.5) { toast('You are not tired yet.'); return; }
+  if (F.carry) eatCarry();
+  F.mode = 'sleep'; TOD.scale = 36; stats().sleeps++;
+  $('sleepScreen').hidden = false;
+  persist();
+}
+function wake(msg) {
+  if (F.mode !== 'sleep') return;
+  F.mode = 'perch'; TOD.scale = 1;
+  $('sleepScreen').hidden = true;
+  toast(msg || (TOD.hour < 12 && TOD.hour >= 5 ? 'Good morning!' : 'You woke up.'), 'gold');
+  persist();
+}
+function perchAt(type, silent = false, tree = null) {
+  F.mode = 'perch'; F.perchType = type; F.tree = tree;
+  if (type === 'nest') F.pos.set(EX + 2.4, EY + 1.0, EZ + 0.6);
+  else F.pos.set(tree.x, tree.perchY, tree.z);
+  F.speed = 0; F.pitch = 0; F.roll = 0; F.tuck = 1; F.flare = 0;
+  if (!silent) {
+    stats().landings++;
+    toast(type === 'nest' ? 'Home at the eyrie. Safe from danger.' : 'Perched in a tree. Hidden from danger.', 'gold');
+    whoosh(0.15, 600);
+  }
+  if (type === 'nest' && F.carry) feedChicks();
+}
+function landGround(soft) {
+  F.mode = 'ground'; F.perchType = null; F.tree = null;
+  F.pos.y = surfaceAt(F.pos.x, F.pos.z) + LEG;
+  F.speed = 0; F.pitch = 0; F.roll = 0; F.tuck = 1; F.flare = 0;
+  stats().landings++;
+  if (soft) {
+    const c = colliderAt(F.pos.x, F.pos.z);
+    toast(c ? `Landed on the ${c.name}.` : 'Landed. Watch out for foxes on the ground!', 'gold');
+    whoosh(0.15, 600);
+  }
+}
+function takeOff() {
+  if (F.stunT > 0) return;
+  if (F.exhausted || F.energy < 6) { toast('Too tired to take off. Rest a bit longer.', 'bad'); return; }
+  const fromPerch = F.mode === 'perch';
+  F.mode = 'fly'; F.energy -= 6;
+  F.speed = fromPerch ? 13 : 11; F.pitch = fromPerch ? 0.15 : 0.55; F.pos.y += 0.8; F.tuck = 0; F.flapPh = 0;
+  if (fromPerch && F.perchType === 'tree') F.pos.y += 2;
+  F.noPerchT = 1.2;
+  whoosh(0.2, 800);
+}
+function checkCollisions() {
+  const kmh = F.speed * 3.6;
+  // the nest
+  if (F.noPerchT <= 0 && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 7 && F.pos.y < EY + 2.5 && F.pos.y > EY - 3 && kmh < 80) { perchAt('nest'); return true; }
+  // trees: slow means perch and hide, fast means a painful crash
+  for (const t of treesNear(F.pos.x, F.pos.z)) {
+    const d = Math.hypot(F.pos.x - t.x, F.pos.z - t.z);
+    if (d < t.r * 0.85 && F.pos.y < t.top && F.pos.y > t.base) {
+      if (F.noPerchT > 0) continue;
+      if (kmh < 60) { perchAt('tree', false, t); return true; }
+      injure(Math.round(8 + (kmh - 60) * 0.3), 'Ouch! You flew into a tree. Slow below 60 km/h to land in one.');
+      if (F.mode !== 'fly') return true;
+      tA.set(F.pos.x - t.x, 0, F.pos.z - t.z); if (tA.lengthSq() < 0.01) tA.set(1, 0, 0);
+      tA.setLength(t.r + 1); F.pos.x = t.x + tA.x; F.pos.z = t.z + tA.z;
+      F.speed = 6; F.pitch = 0.1; F.yaw = Math.atan2(tA.x, tA.z);
+      return false;
+    }
+  }
+  // buildings
+  const c = colliderAt(F.pos.x, F.pos.z);
+  if (c && F.pos.y < c.top + 0.3) {
+    if (kmh < 60 && F.prev.y >= c.top - 0.8) { landGround(true); return true; }
+    injure(Math.round(10 + Math.max(0, kmh - 50) * 0.3), `Smack! You hit the ${c.name}.`);
+    if (F.mode !== 'fly') return true;
+    tA.set(F.pos.x - c.x, 0, F.pos.z - c.z).setLength(c.r + 1.5); F.pos.x = c.x + tA.x; F.pos.z = c.z + tA.z;
+    F.speed = 6; F.pitch = 0.2; F.yaw = Math.atan2(tA.x, tA.z);
+    return false;
+  }
+  // ground and water
+  const g = heightAt(F.pos.x, F.pos.z);
+  if (F.pos.y < Math.max(g, 0) + 0.6) {
+    if (g < 0.15) {
+      F.pos.y = 1.4; F.pitch = 0.45; F.speed = Math.max(F.speed * 0.5, 11); F.energy = Math.max(0, F.energy - 10);
+      burst(F.pos, tA.set(0, 6, 0), [0xcfe8f5, 0xffffff, 0x9fd0ec], 18, 0); sfx.splash();
+      if (kmh > 130) injure(15, 'Splash! You hit the water hard.');
+      else toast('Splash! Peregrines can\'t swim. Land on the bank.', 'bad');
+      return false;
+    }
+    const steep = F.pitch < -0.45;
+    if (kmh < 65 && !steep) landGround(true);
+    else if (kmh < 120 && F.pitch > -0.7) { landGround(false); injure(Math.round((kmh - 65) * 0.5) + 3, `Rough landing! Slow down and ${KEY.up} before you touch down.`); }
+    else { landGround(false); F.stunT = 3; injure(Math.round(25 + (kmh - 120) * 0.25), 'Crash! Pull out of the dive sooner.'); }
+    return true;
+  }
+  return false;
+}
+
+// ---------- the falcon each frame ----------
+const fwdOf = (yaw, pitch, out) => out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+let target = null;
+function updateFlight(dt, inp) {
+  F.prev.copy(F.pos);
+  F.noPerchT = Math.max(0, (F.noPerchT || 0) - dt);
+  const injured = F.health < 40;
+  const canFlap = !F.exhausted && F.energy > 0;
+  F.tuck = damp(F.tuck, inp.tuck ? 1 : 0, 6, dt);
+  const wobble = injured ? Math.sin(game.t * 2.3) * 0.1 : 0;
+  F.roll = damp(F.roll, inp.x * (0.95 - F.tuck * 0.35) * (injured ? 0.8 : 1) + wobble, 4, dt);
+  F.yaw -= Math.sin(F.roll) * 1.95 * (1 - F.tuck * 0.45) * dt;
+  F.pitch += inp.y * (1.1 + F.speed / 90) * dt;
+  if (F.tuck > 0.4 && inp.y <= 0) F.pitch = damp(F.pitch, -1.25, 1.4 * F.tuck, dt);
+  if (settings.autoLevel && Math.abs(inp.y) < 0.1 && F.tuck < 0.3) F.pitch = damp(F.pitch, -0.05, 0.45, dt);
+  F.stall = F.speed < 11;
+  if (F.stall) F.pitch -= (11 - F.speed) * 0.12 * dt;
+  // gentle aim assist toward the marked prey
+  if (target && !F.carry) {
+    tA.subVectors(target.pos, F.pos); const d = tA.length(); tA.normalize();
+    if (d < 90 && tA.dot(F.fwd) > 0.86) {
+      const wantYaw = Math.atan2(tA.x, tA.z), wantPitch = Math.asin(clamp(tA.y, -1, 1));
+      F.yaw += clamp(wrapAngle(wantYaw - F.yaw), -0.9 * dt, 0.9 * dt); F.pitch += clamp(wantPitch - F.pitch, -0.9 * dt, 0.9 * dt);
+    }
+  }
+  F.pitch = clamp(F.pitch, -1.5, 0.85);
+
+  const sp = Math.sin(F.pitch), agl = F.pos.y - surfaceAt(F.pos.x, F.pos.z);
+  F.flare = damp(F.flare, inp.y > 0.3 && agl < 25 && F.tuck < 0.3 && F.speed < 30 ? 1 : 0, 5, dt);
+  const openDrag = 0.0016 + 0.004 * Math.max(0, -sp) + F.flare * 0.008;
+  const drag = lerp(openDrag, has('arrow') ? 0.00078 : 0.00098, F.tuck);
+  let acc = -9.8 * sp - drag * F.speed * F.speed;
+  const flapping = inp.flap && canFlap && F.tuck < 0.5;
+  if (inp.flapPressed && !canFlap) toast('Too tired to flap! Glide down, land and rest, or eat.', 'bad');
+  const power = (has('wings') ? 1.3 : 1) * (injured ? 0.6 : 1);
+  let lift = F.flare * 1.5;
+  if (flapping) { acc += 1.5 * power; lift += 2.6 * power; F.energy -= 13 * dt; }
+  if (F.carry) acc -= 0.5;
+  F.inThermal = false;
+  for (const t of THERMALS) {
+    if (Math.hypot(F.pos.x - t.x, F.pos.z - t.z) < t.r && F.pos.y < t.top) { F.inThermal = true; lift += t.lift * (1 - F.tuck); }
+  }
+  F.thin = F.pos.y > THIN_AIR;
+  if (F.thin) F.energy -= 7 * dt;
+  F.energy = clamp(F.energy, 0, energyCap());
+  if (F.energy <= 0 && !F.exhausted) { F.exhausted = true; toast('Out of energy! You can only glide now. Land to rest, or eat your prey.', 'bad', 4500); }
+  F.speed = clamp(F.speed + acc * dt, 7, injured ? 75 : 115);
+
+  fwdOf(F.yaw, F.pitch, F.fwd);
+  F.pos.addScaledVector(F.fwd, F.speed * dt);
+  F.pos.y += lift * dt;
+
+  if (checkCollisions()) return;
+  if (F.pos.y > 640) { F.pos.y = 640; F.pitch = Math.min(F.pitch, 0); }
+  const r = Math.hypot(F.pos.x, F.pos.z);
+  if (r > LIMIT) {
+    F.yaw += clamp(wrapAngle(Math.atan2(-F.pos.x, -F.pos.z) - F.yaw), -1.2 * dt, 1.2 * dt);
+    if (!F.edgeWarned) { toast('The valley ends here. Turn back!', 'bad'); F.edgeWarned = true; }
+  } else if (r < LIMIT - 80) F.edgeWarned = false;
+
+  const kmh = F.speed * 3.6;
+  if (kmh > stats().topSpeed) stats().topSpeed = kmh;
+  if (F.inThermal) stats().thermalTime += dt;
+  F.flapping = flapping;
+  tryCatch();
+  if (F.carry && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 20 && Math.abs(F.pos.y - EY) < 30) feedChicks();
+}
+function updateGround(dt, inp) {
+  F.prev.copy(F.pos);
+  F.stunT = Math.max(0, F.stunT - dt); F.drinkT = Math.max(0, F.drinkT - dt);
+  F.moving = false;
+  if (F.stunT <= 0) {
+    F.yaw -= inp.x * 1.8 * dt;
+    if (Math.abs(inp.y) > 0.1 && F.drinkT <= 0) {
+      const sp = inp.y * 1.4;
+      const nx = F.pos.x + Math.sin(F.yaw) * sp * dt, nz = F.pos.z + Math.cos(F.yaw) * sp * dt;
+      if (heightAt(nx, nz) > 0.1) { F.pos.x = nx; F.pos.z = nz; F.moving = true; }
+    }
+    if (inp.flapPressed) takeOff();
+  }
+  if (F.mode === 'ground') F.pos.y = surfaceAt(F.pos.x, F.pos.z) + LEG + (F.moving ? Math.abs(Math.sin(game.t * 9)) * 0.06 : 0);
+}
+function updatePerch(dt, inp) {
+  F.yaw -= inp.x * 1.8 * dt;
+  if (inp.flapPressed) takeOff();
+}
+function updateSleep() {
+  if (F.rest >= 100 && nightF < 0.3) wake('Good morning! You slept well.');
+  else if (F.food <= 5) wake('Your hunger woke you up.');
+  else if (F.water <= 5) wake('Your thirst woke you up.');
+}
+function updateNeeds(dt) {
+  const dh = dt * TOD.scale / HOUR, sleeping = F.mode === 'sleep', resting = F.mode !== 'fly';
+  F.food = Math.max(0, F.food - dh * (sleeping ? 2.5 : 5));
+  F.water = Math.max(0, F.water - dh * (sleeping ? 3 : 6.5));
+  if (sleeping) F.rest = Math.min(100, F.rest + dh * 22);
+  else F.rest = Math.max(0, F.rest - dh * (nightF > 0.5 ? 7 : 4.5));
+  let heal = sleeping ? 30 : resting ? (F.moving ? 8 : 16) : 2;
+  if (F.food < 20 || F.water < 20) heal *= 0.3;
+  const hurt = (F.food <= 0 ? 8 : 0) + (F.water <= 0 ? 12 : 0);
+  F.health = Math.min(100, F.health + dh * (heal - hurt));
+  if (F.health <= 0) { collapse('You grew too weak from hunger and thirst.'); return; }
+  if (resting) {
+    const rate = F.mode === 'ground' ? (F.moving ? 4 : 8) : F.perchType === 'nest' ? 15 : 11;
+    F.energy += rate * dt * (sleeping ? TOD.scale / 6 : 1);
+  }
+  F.energy = clamp(F.energy, 0, energyCap());
+  if (F.exhausted && F.energy >= 25) { F.exhausted = false; if (resting) toast('Rested enough to fly again.', 'gold'); }
+  warnOnce('food', F.food < 15, F.food > 30, 'You are hungry. Catch something and eat it.');
+  warnOnce('water', F.water < 15, F.water > 30, 'You are thirsty. Land by the river and drink.');
+  warnOnce('rest', F.rest < 12, F.rest > 30, 'You are exhausted. Sleep in a tree or your nest.');
+  warnOnce('thin', F.thin && F.mode === 'fly', !F.thin, 'The air is too thin up here! Your energy is draining. Fly lower.');
+}
+
+// falcon body language for each situation
+function poseFalcon(dt, inp) {
+  const b = falcon, g = b.group;
+  const flying = F.mode === 'fly';
+  const agl = F.pos.y - surfaceAt(F.pos.x, F.pos.z);
+  if (flying) {
+    g.position.copy(F.pos);
+    g.rotation.set(-F.pitch, F.yaw, F.roll);
+    if (F.flapping) F.flapPh += dt * 13;
+    const glideFlex = Math.sin(game.t * 1.7) * 0.04;
+    animWings(b, { ph: F.flapPh, amp: F.flapping ? 0.9 : 0, tuck: F.tuck, dihedral: F.flapping ? 0 : 0.06 + glideFlex, flare: F.flare });
+    b.legs.visible = !!F.carry || (agl < 14 && F.speed < 22) || F.flare > 0.3;
+    b.legs.rotation.x = F.carry ? 0.2 : -0.9 * F.flare;
+    b.tail.scale.x = 1 + Math.max(F.flare, Math.abs(F.roll) * 0.6, F.speed < 14 ? 0.5 : 0) * 0.9 - F.tuck * 0.35;
+    b.tail.rotation.z = -F.roll * 0.35; b.tail.rotation.x = -F.flare * 0.45 + inp.y * 0.12;
+    let look = -inp.x * 0.4;
+    if (target && !F.carry) {
+      tA.subVectors(target.pos, F.pos).normalize();
+      const rel = wrapAngle(Math.atan2(tA.x, tA.z) - F.yaw);
+      if (Math.abs(rel) < 1.2) look = clamp(rel, -0.7, 0.7);
+    }
+    b.head.rotation.y = damp(b.head.rotation.y, look, 5, dt); b.head.rotation.x = damp(b.head.rotation.x, F.tuck * 0.2, 5, dt);
+    if (F.flapping && Math.sin(F.flapPh) > 0.95 && F.flapSnd <= 0) { whoosh(0.07, 900); F.flapSnd = 0.2; }
+    F.flapSnd -= dt;
+  } else {
+    // standing upright with wings folded along the back
+    const sleeping = F.mode === 'sleep', stunned = F.stunT > 0;
+    g.position.copy(F.pos);
+    if (sleeping) g.position.y -= 0.15;
+    g.rotation.set(-0.6, F.yaw, stunned ? 1.25 : 0);
+    animWings(b, { tuck: 1, droop: stunned ? -0.3 : 0 });
+    b.legs.visible = !sleeping; b.legs.rotation.x = 0.6;
+    b.tail.scale.x = 1; b.tail.rotation.z = 0; b.tail.rotation.x = -0.25;
+    let ly = 0, lx = 0.45;
+    if (sleeping) { ly = 2.5; lx = 0.6; }
+    else if (F.drinkT > 0) { lx = 1.3; }
+    else if (!F.moving) { ly = Math.sin(game.t * 0.6) * 0.8 + Math.sin(game.t * 1.9) * 0.25; lx = 0.45 + Math.sin(game.t * 0.9) * 0.15; }
+    else lx = 0.45 + Math.sin(game.t * 18) * 0.12;
+    b.head.rotation.y = damp(b.head.rotation.y, ly, 4, dt); b.head.rotation.x = damp(b.head.rotation.x, lx, 6, dt);
+  }
+  if (F.carry) { F.carry.b.group.position.y = flying ? -0.48 : -0.2; F.carry.b.group.position.z = flying ? 0.05 : 0.45; }
+}
+
+// menu: the falcon circles over the valley
+function updateMenuFlight(dt) {
+  const t = game.t * 0.12;
+  F.pos.set(riverX(-60) + Math.cos(t) * 160, 130 + Math.sin(t * 2) * 12, -60 + Math.sin(t) * 160);
+  F.yaw = Math.atan2(-Math.sin(t), Math.cos(t)); F.pitch = Math.cos(t * 2) * 0.05; F.roll = 0.35; F.speed = 20;
+  fwdOf(F.yaw, F.pitch, F.fwd);
+  falcon.group.position.copy(F.pos); falcon.group.rotation.set(-F.pitch, F.yaw, F.roll);
+  const flapping = Math.sin(game.t * 0.7) > 0.5;
+  F.flapPh += dt * 13;
+  animWings(falcon, flapping ? { ph: F.flapPh, amp: 0.85 } : { dihedral: 0.06 });
+  falcon.legs.visible = false;
+}
+
+// ---------- camera ----------
+const camTarget = new V3(), camLook = new V3();
+let camInit = false;
+function updateCamera(dt) {
+  const kmh = F.speed * 3.6;
+  const flying = F.mode === 'fly' || game.state === 'menu';
+  if (game.cam === 'first' && game.state === 'play') {
+    falcon.group.visible = false;
+    if (flying) {
+      camera.position.copy(F.pos).addScaledVector(F.fwd, 0.7); camera.position.y += 0.2;
+      camera.quaternion.copy(falcon.group.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new V3(0, 1, 0), Math.PI));
+    } else {
+      camera.position.copy(F.pos); camera.position.y += 0.35;
+      camLook.set(F.pos.x + Math.sin(F.yaw + falcon.head.rotation.y) * 10, F.pos.y + 0.2, F.pos.z + Math.cos(F.yaw + falcon.head.rotation.y) * 10);
+      camera.lookAt(camLook);
+    }
+  } else {
+    falcon.group.visible = true;
+    if (flying) {
+      const back = game.state === 'menu' ? 9 : 6 + F.tuck * 1.5;
+      camTarget.copy(F.pos).addScaledVector(F.fwd, -back); camTarget.y += game.state === 'menu' ? 3 : 2.1;
+      if (game.state === 'menu') camTarget.addScaledVector(tA.set(F.fwd.z, 0, -F.fwd.x), 5);
+      camLook.copy(F.pos).addScaledVector(F.fwd, 8);
+    } else {
+      const orbit = F.mode === 'sleep' ? game.t * 0.15 : 0;
+      const a = F.yaw + Math.PI + orbit;
+      const dist = F.mode === 'ground' ? 3.6 : 4.4;
+      camTarget.set(F.pos.x + Math.sin(a) * dist, F.pos.y + (F.mode === 'ground' ? 1.5 : 2.3), F.pos.z + Math.cos(a) * dist);
+      camLook.set(F.pos.x + Math.sin(F.yaw) * 1.5, F.pos.y + 0.3, F.pos.z + Math.cos(F.yaw) * 1.5);
+    }
+    if (!camInit) { camera.position.copy(camTarget); camInit = true; }
+    const k = flying ? 6 : 4;
+    camera.position.x = damp(camera.position.x, camTarget.x, k, dt);
+    camera.position.y = damp(camera.position.y, camTarget.y, k, dt);
+    camera.position.z = damp(camera.position.z, camTarget.z, k, dt);
+    const cg = surfaceAt(camera.position.x, camera.position.z) + 1.2;
+    if (camera.position.y < cg) camera.position.y = cg;
+    camera.lookAt(camLook);
+    if (flying) camera.rotateZ(-F.roll * 0.28);
+    if (kmh > 240 && game.state === 'play' && flying) { camera.position.x += (Math.random() - .5) * 0.06; camera.position.y += (Math.random() - .5) * 0.06; }
+  }
+  const fov = flying ? 62 + clamp(F.speed / 110, 0, 1) * 26 : 60;
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = damp(camera.fov, fov, 3, dt); camera.updateProjectionMatrix(); }
+  sky.position.copy(camera.position); stars.position.copy(camera.position);
+  sun.position.copy(F.pos).addScaledVector(LIGHT_DIR, 300); sun.target.position.copy(F.pos);
+}
+
+// ---------- HUD ----------
+const mini = $('mini'), mctx = mini.getContext('2d');
+const MAP_R = 1150;
+const mapImg = document.createElement('canvas'); mapImg.width = mapImg.height = 150;
+{
+  const ctx = mapImg.getContext('2d'), img = ctx.createImageData(150, 150), c = new THREE.Color();
+  for (let j = 0; j < 150; j++) for (let i = 0; i < 150; i++) {
+    const x = (i / 149 * 2 - 1) * MAP_R, z = (j / 149 * 2 - 1) * MAP_R, h = heightAt(x, z);
+    terrainColor(x, z, h, slopeAt(x, z), c); if (h < 0) c.setHex(0x3d9cc6);
+    c.convertLinearToSRGB(); img.data.set([c.r * 255, c.g * 255, c.b * 255, 255], (j * 150 + i) * 4);
+  }
+  ctx.putImageData(img, 0, 0);
+}
+const toMap = (x, z) => [(x / MAP_R * .5 + .5) * 150, (z / MAP_R * .5 + .5) * 150];
+function drawMini() {
+  mctx.drawImage(mapImg, 0, 0);
+  mctx.fillStyle = `rgba(8,14,30,${0.2 + nightF * 0.45})`; mctx.fillRect(0, 0, 150, 150);
+  mctx.setLineDash([2, 2]); mctx.strokeStyle = 'rgba(255,234,176,.9)';
+  for (const t of THERMALS) { const [x, y] = toMap(t.x, t.z); mctx.beginPath(); mctx.arc(x, y, 4, 0, 7); mctx.stroke(); }
+  mctx.setLineDash([]);
+  for (const p of prey) { if (p.state !== 'fly') continue; const [x, y] = toMap(p.pos.x, p.pos.z); mctx.fillStyle = p.type === 'teal' ? '#5fe0b0' : '#ffffff'; mctx.fillRect(x - 1.5, y - 1.5, 3, 3); }
+  mctx.fillStyle = '#ef6a55';
+  if (eagle.b.group.visible) { const [x, y] = toMap(eagle.pos.x, eagle.pos.z); mctx.fillRect(x - 2.5, y - 2.5, 5, 5); }
+  const [ex, ey] = toMap(EX, EZ); mctx.fillStyle = '#f0c02a'; mctx.save(); mctx.translate(ex, ey); mctx.rotate(Math.PI / 4); mctx.fillRect(-4, -4, 8, 8); mctx.restore();
+  const [fx, fy] = toMap(F.pos.x, F.pos.z);
+  mctx.save(); mctx.translate(fx, fy); mctx.rotate(-F.yaw + Math.PI);
+  mctx.fillStyle = '#ffffff'; mctx.strokeStyle = '#000'; mctx.lineWidth = 1;
+  mctx.beginPath(); mctx.moveTo(0, -7); mctx.lineTo(5, 5); mctx.lineTo(0, 2); mctx.lineTo(-5, 5); mctx.closePath(); mctx.fill(); mctx.stroke(); mctx.restore();
+}
+function project(pos) { pv.copy(pos).project(camera); return { x: (pv.x * .5 + .5) * innerWidth, y: (-pv.y * .5 + .5) * innerHeight, behind: pv.z > 1, nx: pv.x, ny: pv.y }; }
+function placeMarker(el, pos) {
+  pv.copy(pos).project(camera);
+  let x = pv.x, y = pv.y; const behind = pv.z > 1;
+  if (behind) { x = -x; y = -y; }
+  const m = 0.86; let edge = false;
+  if (behind || Math.abs(x) > m || Math.abs(y) > m) {
+    const mx = Math.max(Math.abs(x), Math.abs(y));
+    if (mx < 1e-3) { x = 0; y = -m; } else { x *= m / mx; y *= m / mx; }
+    edge = true;
+  }
+  el.style.transform = `translate(${(x * .5 + .5) * innerWidth}px,${(-y * .5 + .5) * innerHeight}px)`;
+  el.classList.toggle('edge', edge);
+}
+let frame = 0, lastTags = '', lastPrompt = '', lastAct = '';
+const setBar = (id, v, max = 100) => { const el = $(id); el.querySelector('i').style.width = clamp(v / max * 100, 0, 100) + '%'; el.classList.toggle('low', v / max < 0.2); };
+function updateHUD() {
+  frame++;
+  const flying = F.mode === 'fly';
+  const kmh = flying ? Math.round(F.speed * 3.6) : 0, g = surfaceAt(F.pos.x, F.pos.z);
+  $('spd').textContent = kmh; $('alt').textContent = Math.max(0, Math.round(F.pos.y - g - (flying ? 0 : LEG)));
+  setBar('nHealth', F.health); setBar('nEnergy', F.energy, maxEnergy()); setBar('nFood', F.food); setBar('nWater', F.water); setBar('nRest', F.rest);
+  $('clockTime').textContent = `Day ${TOD.day} · ${fmtTime(TOD.hour)}`; $('clockPart').textContent = partOfDay(TOD.hour);
+  $('gauges').classList.toggle('stoop', flying && F.tuck > 0.5);
+  $('vignette').style.opacity = flying ? clamp((kmh - 150) / 200, 0, 0.9) : 0;
+  hurtLevel = Math.max(hurtLevel * 0.95, F.health < 30 ? 0.35 + Math.sin(game.t * 4) * 0.1 : 0);
+  $('hurt').style.opacity = hurtLevel;
+
+  // status tags
+  const tags = [];
+  if (flying && F.tuck > 0.5) tags.push(['STOOP', 'gold']);
+  if (flying && F.thin) tags.push(['THIN AIR', 'bad']);
+  if (flying && F.stall) tags.push(['STALL: NOSE DROPPING', 'bad']);
+  if (F.inThermal && flying) tags.push(['THERMAL', 'good']);
+  if (F.exhausted) tags.push(['EXHAUSTED', 'bad']);
+  if (F.health < 40) tags.push(['INJURED', 'bad']);
+  if (F.stunT > 0) tags.push(['STUNNED', 'bad']);
+  if (F.hidden) tags.push(['HIDDEN', 'good']);
+  if (atNest()) tags.push(['SAFE AT NEST', 'good']);
+  const tagKey = tags.map(t => t[0]).join();
+  if (tagKey !== lastTags) { lastTags = tagKey; $('tags').innerHTML = tags.map(([t, c]) => `<span class="tag ${c}">${t}</span>`).join(''); }
+
+  // context prompt
+  let pr = '';
+  const act = actionLabel();
+  if (F.mode === 'ground') pr = F.stunT > 0 ? 'Stunned…' : `Walk slowly with <b>${isTouch ? 'the stick' : 'W A S D'}</b>. <b>${KEY.fly}</b> to take off.` + (act === 'DRINK' ? ` <b>${KEY.act}</b> to drink.` : '');
+  else if (F.mode === 'perch') pr = `<b>${KEY.fly}</b> to take off. <b>${KEY.sleep}</b> to sleep.`;
+  if (F.carry && F.mode !== 'sleep') pr = `Carrying a <b>${PREY[F.carry.type].name.toLowerCase()}</b>. Take it to the eyrie, or <b>${KEY.act}</b> to eat it.` + (flying ? '' : ` <b>${KEY.fly}</b> to take off.`);
+  if (pr !== lastPrompt) { lastPrompt = pr; $('prompt').innerHTML = pr; $('prompt').hidden = !pr; }
+  if (act !== lastAct) { lastAct = act; $('bAct').textContent = act; $('bAct').hidden = !act; }
+  const fl = flying ? 'FLAP' : 'TAKE OFF';
+  if ($('bFlap').textContent !== fl) $('bFlap').textContent = fl;
+  $('bDive').hidden = !flying;
+
+  // flight path marker and horizon line, so you can see where the nose is pointing
+  const fpm = $('fpm'), hz = $('horizon');
+  fpm.hidden = !flying; hz.hidden = !flying;
+  if (flying) {
+    const p = project(tA.copy(F.pos).addScaledVector(F.fwd, 80));
+    if (!p.behind) fpm.style.transform = `translate(${p.x}px,${p.y}px)`;
+    const deg = Math.round(F.pitch * 57.3);
+    fpm.querySelector('b').textContent = (deg > 0 ? '+' : '') + deg + '°';
+    fpm.classList.toggle('down', deg < -5); fpm.classList.toggle('up', deg > 5);
+    const yawC = Math.atan2(F.fwd.x, F.fwd.z);
+    const h0 = project(tA.set(camera.position.x + Math.sin(yawC) * 1500, camera.position.y, camera.position.z + Math.cos(yawC) * 1500));
+    const h1 = project(tB.set(camera.position.x + Math.sin(yawC) * 1500 + Math.cos(yawC) * 400, camera.position.y, camera.position.z + Math.cos(yawC) * 1500 - Math.sin(yawC) * 400));
+    if (!h0.behind && !h1.behind) { hz.hidden = false; hz.style.transform = `translate(${h0.x}px,${h0.y}px) rotate(${Math.atan2(h1.y - h0.y, h1.x - h0.x)}rad)`; }
+    else hz.hidden = true;
+  }
+
+  // prey marker with strike odds when close
+  const range = (has('keen') ? 450 : 250) * (1 - nightF * 0.5);
+  target = null; let best = Infinity;
+  if (!F.carry && flying) for (const p of prey) {
+    if (p.state !== 'fly') continue;
+    tA.subVectors(p.pos, F.pos); const d = tA.length(); if (d > range) continue;
+    const dot = tA.dot(F.fwd) / d; if (dot < 0.35) continue;
+    const score = d * (1.6 - dot); if (score < best) { best = score; target = p; }
+  }
+  const mk = $('mkPrey');
+  mk.hidden = !target;
+  if (target) {
+    placeMarker(mk, target.pos);
+    const d = Math.round(target.pos.distanceTo(F.pos));
+    let label = `${PREY[target.type].name} · ${d} m`;
+    if (d < 70) label += ` · ${Math.round(strikeOdds(target).chance * 100)}% strike`;
+    if (target.dodgeT > 0) label = `${PREY[target.type].name} · escaping`;
+    mk.firstChild.textContent = label;
+    mk.classList.toggle('close', d < 70);
+  }
+  const nk = $('mkNest'); nk.hidden = !F.carry && !(F.rest < 30 || nightF > 0.5) || atNest();
+  if (!nk.hidden) { placeMarker(nk, tB.set(EX, EY + 4, EZ)); nk.firstChild.textContent = 'Eyrie · ' + Math.round(F.pos.distanceTo(EYRIE)) + ' m'; }
+  const tk = $('mkTherm'); const showT = flying && (prog.mission === 0 || (F.energy < 30 && !F.exhausted));
+  tk.hidden = !showT || F.inThermal;
+  if (!tk.hidden) {
+    let nt = THERMALS[0], nd = Infinity; for (const t of THERMALS) { const d = Math.hypot(F.pos.x - t.x, F.pos.z - t.z); if (d < nd) { nd = d; nt = t; } }
+    placeMarker(tk, tB.set(nt.x, Math.max(F.pos.y, nt.base + 20), nt.z)); tk.firstChild.textContent = 'Thermal · ' + Math.round(nd) + ' m';
+  }
+  // threat markers
+  const threats = [];
+  if (eagle.b.group.visible) { const d = eagle.pos.distanceTo(F.pos); if (d < 450) threats.push({ pos: eagle.pos, label: (eagle.state === 'hunt' ? 'EAGLE HUNTING · ' : 'Golden eagle · ') + Math.round(d) + ' m' }); }
+  if (crowFlock.state === 'mob') threats.push({ pos: crows[0].pos, label: 'Crows!' });
+  for (const f of foxes) { const d = f.pos.distanceTo(F.pos); if ((f.state === 'hunt' || (F.mode === 'ground' && d < 120))) threats.push({ pos: tC.copy(f.pos).setY(f.pos.y + 1), label: (f.state === 'hunt' ? 'FOX CHARGING · ' : 'Fox · ') + Math.round(d) + ' m' }); }
+  for (let i = 0; i < 3; i++) {
+    const el = $('mkT' + i), t = threats[i];
+    el.hidden = !t;
+    if (t) { placeMarker(el, t.pos); el.firstChild.textContent = t.label; }
+  }
+  if (frame % 3 === 0) drawMini();
+}
+
+function updateChicks(dt) {
+  chickHop = Math.max(0, chickHop - dt);
+  chicks.forEach(c => {
+    c.ph += dt * (chickHop > 0 ? 14 : 3);
+    c.hd.position.y = 0.5 + Math.sin(c.ph) * (chickHop > 0 ? 0.12 : 0.03) + (chickHop > 0 ? 0.1 : 0);
+    c.hd.rotation.x = chickHop > 0 ? -0.6 : Math.sin(c.ph * 0.5) * 0.15;
+  });
+}
+
+// ---------- saving and loading ----------
+function snapshot() {
+  return {
+    v: 2, savedAt: Date.now(), xp: prog.xp, mission: prog.mission, stats: { ...prog.stats }, done: prog.done, facts: [...seenFacts],
+    hour: TOD.hour, day: TOD.day,
+    bird: { x: F.pos.x, y: F.pos.y, z: F.pos.z, yaw: F.yaw, mode: F.mode === 'sleep' ? 'perch' : F.mode, perchType: F.perchType,
+      tree: F.tree ? TREES.indexOf(F.tree) : -1, health: F.health, energy: F.energy, food: F.food, water: F.water, rest: F.rest },
+  };
+}
+function applySnapshot(s) {
+  if (!s || s.v !== 2) return false;
+  if (F.carry) dropCarry();
+  prog = { xp: s.xp || 0, mission: s.mission || 0, stats: { ...blankStats(), ...(s.stats || {}) }, done: !!s.done };
+  seenFacts.clear(); (s.facts || []).forEach(k => seenFacts.add(k));
+  game.prevLevel = levelIdx();
+  TOD.hour = s.hour ?? 7; TOD.day = s.day ?? 1; TOD.scale = 1;
+  const b = s.bird || {};
+  Object.assign(F, { health: b.health ?? 100, energy: b.energy ?? 100, food: b.food ?? 75, water: b.water ?? 75, rest: b.rest ?? 85,
+    exhausted: false, stunT: 0, tuck: 0, flare: 0, roll: 0, pitch: 0, yaw: b.yaw ?? Math.PI / 2, drinkT: 0 });
+  if (b.mode === 'perch' && b.perchType === 'tree' && TREES[b.tree]) perchAt('tree', true, TREES[b.tree]);
+  else if (b.mode === 'ground') { F.pos.set(b.x, 0, b.z); landGround(false); stats().landings--; }
+  else if (b.mode === 'fly') { F.mode = 'fly'; F.pos.set(b.x, b.y, b.z); F.speed = 20; }
+  else perchAt('nest', true);
+  F.yaw = b.yaw ?? F.yaw;
+  F.prev.copy(F.pos);
+  $('sleepScreen').hidden = true;
+  eagle.state = 'patrol'; eagle.cool = 30; crowFlock.state = 'idle'; crowFlock.cool = 10;
+  foxes.forEach(f => { f.state = 'wander'; f.cool = 10; });
+  camInit = false;
+  return true;
+}
+function persist() { if (game.state === 'play') store.set(AUTO_KEY, snapshot()); }
+function newGameState() {
+  applySnapshot({ v: 2, xp: 0, mission: 0, stats: blankStats(), hour: 7, day: 1, bird: { mode: 'perch', perchType: 'nest', yaw: Math.PI / 2, health: 100, energy: 100, food: 75, water: 75, rest: 85 } });
+}
+const encodeSave = s => 'TALON2:' + btoa(unescape(encodeURIComponent(JSON.stringify(s))));
+function decodeSave(code) {
+  try { const raw = code.trim().replace(/^TALON2:/, ''); return JSON.parse(decodeURIComponent(escape(atob(raw)))); } catch (e) { return null; }
+}
+function describeSave(s) {
+  let l = 0; LEVELS.forEach((L, i) => { if ((s.xp || 0) >= L.xp) l = i; });
+  const when = new Date(s.savedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return { title: `Level ${l + 1} ${LEVELS[l].name} · Day ${s.day} ${fmtTime(s.hour)}`, sub: `Quest ${Math.min((s.mission || 0) + 1, MISSIONS.length)} of ${MISSIONS.length} · saved ${when}` };
+}
+function renderSlots(el, inPause) {
+  el.innerHTML = [1, 2, 3].map(n => {
+    const s = store.get(SLOT_KEY(n)), d = s && describeSave(s);
+    return `<div class="slot panel"><div class="info"><b>Slot ${n}${d ? ': ' + d.title : ''}</b>${d ? d.sub : 'Empty'}</div>
+      ${inPause ? `<button class="ghost" data-save="${n}">Save here</button>` : ''}
+      <button class="ghost" data-load="${n}" ${s ? '' : 'disabled'}>Load</button></div>`;
+  }).join('');
+}
+function onSlotClick(e, inPause) {
+  const sv = e.target.closest('[data-save]'), ld = e.target.closest('[data-load]');
+  if (sv) {
+    const n = +sv.dataset.save;
+    if (store.get(SLOT_KEY(n)) && !sv.dataset.armed) { sv.dataset.armed = '1'; sv.textContent = 'Tap again to overwrite'; sv.classList.add('warn'); return; }
+    const ok = store.set(SLOT_KEY(n), snapshot());
+    renderSlots(e.currentTarget, inPause);
+    flashNote(ok ? `Saved to slot ${n}.` : 'Could not save. This browser may be blocking storage.');
+  }
+  if (ld) {
+    const s = store.get(SLOT_KEY(+ld.dataset.load));
+    if (!s) return;
+    if (inPause) { applySnapshot(s); togglePause(false); afterLoad(`Loaded slot ${ld.dataset.load}.`); }
+    else { applySnapshot(s); startPlay(); afterLoad(`Loaded slot ${ld.dataset.load}.`); }
+  }
+}
+function flashNote(msg) { const b = $('resumeBtn'); const old = 'Resume'; b.textContent = msg; setTimeout(() => { b.textContent = old; }, 1800); }
+function afterLoad(msg) { renderMission(); renderStatus(); toast(msg, 'gold'); persist(); }
+$('pauseSlots').addEventListener('click', e => onSlotClick(e, true));
+$('menuSlots').addEventListener('click', e => onSlotClick(e, false));
+$('copyCodeBtn').addEventListener('click', () => {
+  const code = encodeSave(snapshot()), box = $('pauseCode');
+  box.value = code;
+  const fallback = () => { box.focus(); box.select(); $('copyCodeBtn').textContent = 'Select and copy the code below'; };
+  try { navigator.clipboard.writeText(code).then(() => { $('copyCodeBtn').textContent = 'Copied!'; }, fallback); } catch (e) { fallback(); }
+  setTimeout(() => { $('copyCodeBtn').textContent = 'Copy save code'; }, 2500);
+});
+function loadCode(box, inPause) {
+  const s = decodeSave(box.value);
+  if (!s || s.v !== 2) { box.value = ''; box.placeholder = 'That code did not work. Check you copied all of it, then paste it again.'; return; }
+  applySnapshot(s);
+  if (inPause) togglePause(false); else startPlay();
+  afterLoad('Loaded your save code.');
+}
+$('pauseCodeBtn').addEventListener('click', () => loadCode($('pauseCode'), true));
+$('menuCodeBtn').addEventListener('click', () => loadCode($('menuCode'), false));
+
+// ---------- menus ----------
+const BIRDS = [
+  { id: 'peregrine', name: 'Peregrine Falcon', hab: 'Sea cliffs, crags and cathedrals', blurb: 'The fastest animal alive. Climb high, fold your wings and stoop onto birds in mid-air.', s: [5, 3, 2], ok: true },
+  { id: 'eagle', name: 'Golden Eagle', hab: 'Scottish Highlands', blurb: 'Huge and powerful. Soar the glens on 2 m wings and hunt mountain hares.', s: [3, 5, 2] },
+  { id: 'owl', name: 'Barn Owl', hab: 'Farmland at dusk', blurb: 'Silent flight and super hearing. Find voles in the dark by sound alone.', s: [2, 2, 5] },
+  { id: 'osprey', name: 'Osprey', hab: 'Lochs and rivers', blurb: 'The fish hawk. Hover, then plunge feet-first into the water.', s: [3, 4, 2] },
+  { id: 'kite', name: 'Red Kite', hab: 'Chiltern hills', blurb: 'A forked-tail glider that rules the sky by patience and cunning.', s: [3, 2, 3] },
+  { id: 'sparrowhawk', name: 'Sparrowhawk', hab: 'Woods and gardens', blurb: 'An ambush expert that weaves between trees at full speed.', s: [4, 2, 4] },
+];
+const pips = n => '<span class="pips">' + [1, 2, 3, 4, 5].map(i => `<i class="${i <= n ? 'f' : ''}"></i>`).join('') + '</span>';
+$('cards').innerHTML = BIRDS.map(b => `
+  <button class="card ${b.ok ? 'sel' : 'locked'}" ${b.ok ? '' : 'aria-disabled="true"'} data-id="${b.id}">
+    <span class="lock">${b.ok ? 'Playable' : 'Coming soon'}</span>
+    <h3>${b.name}</h3><p class="hab">${b.hab}</p><p class="blurb">${b.blurb}</p>
+    <span class="stats"><span>Speed</span>${pips(b.s[0])}<span>Power</span>${pips(b.s[1])}<span>Stealth</span>${pips(b.s[2])}</span>
+  </button>`).join('');
+$('cards').addEventListener('click', e => { const c = e.target.closest('.card'); if (c && c.classList.contains('locked')) toast(`${c.querySelector('h3').textContent} isn't ready yet`, '', 1800); });
+const HOWTO = isTouch
+  ? [['Left thumb', 'Steer. Push up to climb, pull down to dive. Walk on the ground'], ['FLAP', 'Flap (uses energy), or take off'], ['DIVE', 'Fold your wings and stoop'], ['ACT', 'Eat, drink or sleep, when you can'], ['VIEW', 'Switch camera'], ['Landing', 'Below 60 km/h, push up to flare, then touch down']]
+  : [['A D', 'Turn left and right'], ['W S', 'Climb (nose up) and dive (nose down)'], ['Space', 'Flap (uses energy), or take off'], ['Shift', 'Fold your wings and stoop'], ['E', 'Eat, drink or sleep, when you can'], ['Z', 'Sleep when perched'], ['V', 'Switch camera'], ['Esc', 'Pause, save and load'], ['Landing', 'Below 60 km/h, hold W to flare, then touch down']];
+const howtoHTML = HOWTO.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('') + (isTouch ? '' : '<div><kbd>Gamepad</kbd><span>Supported too</span></div>');
+$('howto').innerHTML = howtoHTML; $('howto2').innerHTML = howtoHTML;
+
+function renderPause() {
+  const s = stats();
+  $('statgrid').innerHTML = [['Level', `${levelIdx() + 1} · ${LEVELS[levelIdx()].name}`], ['XP', prog.xp], ['Wood pigeons', s.pigeon], ['Teal', s.teal], ['Missed strikes', s.misses], ['Stoop strikes', s.stoops], ['Chicks fed', s.fed], ['Top speed', Math.round(s.topSpeed) + ' km/h']]
+    .map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
+  $('skills').innerHTML = LEVELS.filter(L => L.skill).map(L => {
+    const got = has(L.skill), S = SKILLS[L.skill];
+    return `<div class="skill ${got ? 'got' : ''}"><small>${got ? 'Learned' : 'Unlocks at level ' + (LEVELS.indexOf(L) + 1)}</small><b>${S.name}</b><span>${S.desc}</span></div>`;
+  }).join('');
+  const tog = (id, label, on) => { $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on); };
+  tog('invertBtn', 'Invert up/down', settings.invert); tog('levelBtn', 'Auto-level', settings.autoLevel); tog('soundBtn', 'Sound', !settings.muted);
+  renderSlots($('pauseSlots'), true);
+}
+function togglePause(force) {
+  if (game.state !== 'play') return;
+  game.paused = force ?? !game.paused;
+  $('pause').hidden = !game.paused;
+  if (game.paused) { renderPause(); persist(); }
+}
+function startPlay() {
+  initAudio();
+  document.activeElement?.blur?.();
+  $('menu').hidden = true; $('hud').hidden = false; $('touch').hidden = !isTouch; $('complete').hidden = true;
+  game.state = 'play'; game.paused = false; camInit = false; game.autoT = 0;
+  renderMission(); renderStatus();
+}
+function renderMenu() {
+  const auto = store.get(AUTO_KEY);
+  $('continueBtn').hidden = !auto || auto.v !== 2;
+  $('newBtn').className = auto ? 'ghost' : 'cta';
+  $('newBtn').textContent = 'New game'; delete $('newBtn').dataset.armed;
+  renderSlots($('menuSlots'), false);
+}
+function toMenu() {
+  persist();
+  game.state = 'menu'; game.paused = false; game.cam = 'third';
+  if (F.carry) dropCarry();
+  $('pause').hidden = true; $('hud').hidden = true; $('touch').hidden = true; $('sleepScreen').hidden = true; $('menu').hidden = false;
+  TOD.scale = 1; renderMenu();
+}
+$('continueBtn').addEventListener('click', () => { if (applySnapshot(store.get(AUTO_KEY))) { startPlay(); toast('Welcome back!', 'gold'); } });
+$('newBtn').addEventListener('click', e => {
+  const b = e.currentTarget;
+  if (store.get(AUTO_KEY) && !b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again: this replaces your autosave'; return; }
+  newGameState(); startPlay();
+  setTimeout(() => toast(`You are a young peregrine at your nest. Press ${KEY.fly} to take off!`, 'gold', 5000), 400);
+});
+$('loadMenuBtn').addEventListener('click', () => { $('loadPanel').hidden = !$('loadPanel').hidden; renderSlots($('menuSlots'), false); });
+$('pauseBtn').addEventListener('click', () => togglePause());
+$('resumeBtn').addEventListener('click', () => togglePause(false));
+$('invertBtn').addEventListener('click', () => { settings.invert = !settings.invert; saveSettings(); renderPause(); });
+$('levelBtn').addEventListener('click', () => { settings.autoLevel = !settings.autoLevel; saveSettings(); renderPause(); });
+$('soundBtn').addEventListener('click', () => { settings.muted = !settings.muted; saveSettings(); renderPause(); });
+$('camBtn').addEventListener('click', toggleCam);
+$('menuBtn').addEventListener('click', toMenu);
+$('keepBtn').addEventListener('click', () => { $('complete').hidden = true; game.paused = false; });
+document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'play' && !game.paused) togglePause(true); });
+addEventListener('beforeunload', persist);
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+
+// ---------- loop ----------
+const clock = new THREE.Clock();
+function tick() {
+  requestAnimationFrame(tick);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  game.t += dt;
+  const live = game.state === 'play' && !game.paused;
+  if (game.state === 'menu') updateMenuFlight(dt);
+  else if (live) {
+    const inp = readInput();
+    if (F.mode === 'fly') updateFlight(dt, inp);
+    else if (F.mode === 'ground') updateGround(dt, inp);
+    else if (F.mode === 'perch') updatePerch(dt, inp);
+    else if (F.mode === 'sleep') updateSleep();
+    F.hidden = (F.mode === 'perch' || F.mode === 'sleep') && F.perchType === 'tree';
+    fwdOf(F.yaw, F.mode === 'fly' ? F.pitch : 0, F.fwd);
+    updateNeeds(dt);
+    poseFalcon(dt, inp);
+    beacon.visible = !!F.carry;
+    checkMissions();
+    game.autoT += dt; if (game.autoT > 10) { game.autoT = 0; persist(); }
+  }
+  if (game.state === 'menu' || live) {
+    updateTime(dt);
+    updatePrey(dt, live); updateParts(dt); updateChicks(dt); updateThermals(dt);
+    updateEagle(dt); updateCrows(dt); foxes.forEach(f => updateFox(f, dt));
+    for (const c of clouds) { c.position.x += dt * 3; if (c.position.x > 1400) c.position.x = -1400; }
+  }
+  updateCamera(dt);
+  updateSpeedLines(dt);
+  if (game.state === 'play') updateHUD();
+  updateAudio();
+  renderer.render(scene, camera);
+}
+updateTime(0);
+$('loading').remove();
+$('menu').hidden = false;
+renderMenu();
+window.__talon = { F, game, prey, TREES, foxes, eagle, crowFlock, TOD, heightAt, EYRIE, camera, applySnapshot, snapshot, takeOff, perchAt, landGround, doAction, settings };
+tick();
