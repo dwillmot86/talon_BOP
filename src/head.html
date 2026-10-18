@@ -123,12 +123,13 @@ body.touch .g.wind b{font-size:17px}
 #stickZone{position:absolute;left:0;bottom:0;width:48%;height:75%;pointer-events:auto}
 #stick{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(244,236,214,.45);background:rgba(13,24,26,.3);left:calc(var(--left) + 90px);top:calc(100% - var(--bottom) - 90px);pointer-events:none}
 #knob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(244,236,214,.8)}
-.tbtns{position:absolute;right:var(--right);bottom:var(--bottom);display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:end;pointer-events:auto}
+.tbtns{position:absolute;right:var(--right);bottom:var(--bottom);display:grid;grid-template-columns:auto auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:end;pointer-events:auto}
 .tb{width:76px;height:76px;border-radius:50%;border:2px solid rgba(244,236,214,.55);background:rgba(13,24,26,.55);font-weight:900;font-size:13px;letter-spacing:.06em;touch-action:none}
 .tb.big{width:96px;height:96px;font-size:14px;border-color:var(--ok)}
 .tb.dive{border-color:var(--gold)}
 .tb.small{width:60px;height:60px;font-size:11px}
 .tb.act{border-color:var(--water)}
+.tb.skill{border-color:var(--heather)}
 .tb.on{background:rgba(244,236,214,.35)}
 body.touch #gauges{bottom:auto;top:calc(var(--top));left:50%;padding:6px 12px;gap:12px}
 body.touch .g b{font-size:24px}
@@ -258,6 +259,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
   <div id="stick"><div id="knob"></div></div>
   <div class="tbtns">
     <button id="bAct" class="tb small act" hidden>EAT</button>
+    <button id="bSkill" class="tb small skill" hidden>SKILL</button>
     <button id="bCam" class="tb small">VIEW</button>
     <button id="bDive" class="tb dive">DIVE</button>
     <button id="bFlap" class="tb big">FLAP</button>
@@ -308,7 +310,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
       <div class="row"><button id="copyCodeBtn" class="ghost">Copy save code</button><button id="pauseCodeBtn" class="ghost">Load the code in the box</button></div>
       <textarea id="pauseCode" placeholder="Your save code appears here. You can also paste one in."></textarea>
     </div>
-    <h2>Your peregrine</h2>
+    <h2 id="birdHead">Your peregrine</h2>
     <div class="statgrid panel" id="statgrid"></div>
     <h2>Skills</h2>
     <div class="skills" id="skills"></div>

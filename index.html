@@ -123,12 +123,13 @@ body.touch .g.wind b{font-size:17px}
 #stickZone{position:absolute;left:0;bottom:0;width:48%;height:75%;pointer-events:auto}
 #stick{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(244,236,214,.45);background:rgba(13,24,26,.3);left:calc(var(--left) + 90px);top:calc(100% - var(--bottom) - 90px);pointer-events:none}
 #knob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(244,236,214,.8)}
-.tbtns{position:absolute;right:var(--right);bottom:var(--bottom);display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:end;pointer-events:auto}
+.tbtns{position:absolute;right:var(--right);bottom:var(--bottom);display:grid;grid-template-columns:auto auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:end;pointer-events:auto}
 .tb{width:76px;height:76px;border-radius:50%;border:2px solid rgba(244,236,214,.55);background:rgba(13,24,26,.55);font-weight:900;font-size:13px;letter-spacing:.06em;touch-action:none}
 .tb.big{width:96px;height:96px;font-size:14px;border-color:var(--ok)}
 .tb.dive{border-color:var(--gold)}
 .tb.small{width:60px;height:60px;font-size:11px}
 .tb.act{border-color:var(--water)}
+.tb.skill{border-color:var(--heather)}
 .tb.on{background:rgba(244,236,214,.35)}
 body.touch #gauges{bottom:auto;top:calc(var(--top));left:50%;padding:6px 12px;gap:12px}
 body.touch .g b{font-size:24px}
@@ -258,6 +259,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
   <div id="stick"><div id="knob"></div></div>
   <div class="tbtns">
     <button id="bAct" class="tb small act" hidden>EAT</button>
+    <button id="bSkill" class="tb small skill" hidden>SKILL</button>
     <button id="bCam" class="tb small">VIEW</button>
     <button id="bDive" class="tb dive">DIVE</button>
     <button id="bFlap" class="tb big">FLAP</button>
@@ -308,7 +310,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
       <div class="row"><button id="copyCodeBtn" class="ghost">Copy save code</button><button id="pauseCodeBtn" class="ghost">Load the code in the box</button></div>
       <textarea id="pauseCode" placeholder="Your save code appears here. You can also paste one in."></textarea>
     </div>
-    <h2>Your peregrine</h2>
+    <h2 id="birdHead">Your peregrine</h2>
     <div class="statgrid panel" id="statgrid"></div>
     <h2>Skills</h2>
     <div class="skills" id="skills"></div>
@@ -344,8 +346,8 @@ const $ = id => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
 if (isTouch) document.body.classList.add('touch');
 const KEY = isTouch
-  ? { fly: 'FLAP', dive: 'DIVE', act: 'ACT', sleep: 'ACT', up: 'push the stick up' }
-  : { fly: 'Space', dive: 'Shift', act: 'E', sleep: 'Z', up: 'hold W' };
+  ? { fly: 'FLAP', dive: 'DIVE', act: 'ACT', sleep: 'ACT', up: 'push the stick up', skill: 'the SKILL button' }
+  : { fly: 'Space', dive: 'Shift', act: 'E', sleep: 'Z', up: 'hold W', skill: 'Q' };
 
 // ---------- helpers ----------
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -631,7 +633,7 @@ function birdGeos(o) {
       return o.mantle && n.y > 0.6 && m.z > -bz * 0.1 ? o.mantle : o.back;
     });
   const head = facet(new THREE.IcosahedronGeometry(r, 0).scale(...(o.headShape || [1, 0.92, 1.18])),
-    (n, m) => o.cheek && n.y < -0.15 && m.z > -r * 0.2 ? o.cheek : o.nape && m.z < -r * 0.3 && n.y > 0 ? o.nape : o.head);
+    (n, m) => o.face && n.z > 0.3 ? o.face : o.cheek && n.y < -0.15 && m.z > -r * 0.2 ? o.cheek : o.nape && m.z < -r * 0.3 && n.y > 0 ? o.nape : o.head);
   const bl = o.beakLen || 0.95;
   const beak = facet(new THREE.ConeGeometry(r * .34, r * bl, 4).rotateX(Math.PI / 2), (n, m) => m.z > r * bl * 0.2 && o.beakTip ? o.beakTip : o.beak);
   const cere = o.cere ? facet(new THREE.OctahedronGeometry(r * .26, 0).scale(1, .8, .9), () => o.cere) : null;
@@ -735,39 +737,139 @@ const LOOK = {
     back: 0x4a3626, belly: 0x3d2c20, head: 0x4a3626, nape: 0xc28a3a, wing: 0x4f3a28, tip: 0x231a13, under: 0x5c4632,
     beak: 0x3a3a3a, beakTip: 0x1e1e1e, cere: 0xe8b830, feet: 0xe8b830 },
 };
+Object.assign(LOOK, {
+  owl: { scale: 1.45, body: [.3, .3, .7], headR: .17, headY: .14, headZ: .34, wingZ: .08, span: .45, headShape: [1.05, 1, 0.85], beakLen: .7, hook: .9,
+    profile: [[0, -.5], [.25, -.3], [.5, 0], [.48, .3], [.3, .45], [0, .5]],
+    inner: [[0, .16], [.45, .14], [.45, -.2], [.32, -.22], [.2, -.2], [0, -.22]],
+    outer: [[0, .14], [.3, .12], [.5, .02], [.48, -.08], [.36, -.15], [.2, -.2], [0, -.2]],
+    tail: [[-.07, 0], [-.1, -.22], [.1, -.22], [.07, 0]],
+    back: 0xcf9f5a, mantle: 0xb9b0a2, belly: 0xfbf6ec, head: 0xd0a060, face: 0xfdfaf2, wing: 0xd8a862, tip: 0xc2a27a, under: 0xfaf4e6, beak: 0xe6d3b0, feet: 0xd9cfc0 },
+  osprey: { scale: 1.6, body: [.26, .24, .95], headR: .13, headY: .08, headZ: .52, wingZ: .12, span: .55, headShape: [.85, .85, 1.25], beakLen: 1.3,
+    profile: [[0, -.5], [.1, -.36], [.3, -.1], [.48, .16], [.42, .34], [.24, .46], [0, .5]],
+    inner: [[0, .12], [.55, .08], [.55, -.12], [.4, -.15], [.25, -.12], [.1, -.15], [0, -.15]],
+    outer: [[0, .08], [.35, .02], [.6, -.12], [.52, -.14], [.58, -.18], [.45, -.2], [.5, -.24], [.35, -.2], [0, -.13]],
+    tail: [[-.06, 0], [-.1, -.36], [.1, -.36], [.06, 0]],
+    back: 0x4a3626, belly: 0xf6f3ec, head: 0xf3efe6, wing: 0x4f3a2a, tip: 0x2a1e15, under: 0xe9e4da, beak: 0x2a2a2a, cere: 0x5f6f80, malar: 0x3a2a1e, eyeRing: 0xf2d23a, feet: 0xb9c4c8 },
+  kite: { scale: 1.5, body: [.25, .24, .9], headR: .12, headY: .08, headZ: .48, wingZ: .1, span: .52, headShape: [.85, .85, 1.25], beakLen: 1.2,
+    profile: [[0, -.5], [.12, -.34], [.32, -.1], [.48, .16], [.42, .34], [.22, .46], [0, .5]],
+    inner: [[0, .13], [.52, .1], [.52, -.14], [.38, -.16], [.24, -.14], [.1, -.17], [0, -.17]],
+    outer: [[0, .1], [.3, .06], [.5, -.02], [.44, -.05], [.55, -.09], [.43, -.11], [.52, -.16], [.38, -.17], [0, -.15]],
+    tail: [[-.05, 0], [-.15, -.52], [-.07, -.42], [0, -.38], [.07, -.42], [.15, -.52], [.05, 0]],
+    back: 0x9a4a24, belly: 0xb5602c, bars: 0x8a3e1c, head: 0xd8d4cc, wing: 0xa65a2c, tip: 0x1f1a17, under: 0xece6dc, tailTop: 0xc4702e, beak: 0x3a3330, cere: 0xe8c040, eyeRing: 0xe8d070, feet: 0xe8c040 },
+  hawk: { scale: 1.25, body: [.24, .23, .8], headR: .12, headY: .07, headZ: .42, wingZ: .1, span: .33, headShape: [.85, .85, 1.2], beakLen: 1.0,
+    profile: [[0, -.5], [.15, -.32], [.38, -.06], [.48, .18], [.4, .36], [.2, .46], [0, .5]],
+    inner: [[0, .14], [.33, .12], [.33, -.15], [.22, -.18], [.1, -.16], [0, -.18]],
+    outer: [[0, .12], [.22, .1], [.36, .03], [.4, -.05], [.35, -.12], [.22, -.17], [0, -.16]],
+    tail: [[-.07, 0], [-.09, -.55], [0, -.57], [.09, -.55], [.07, 0]],
+    back: 0x5d6a7a, belly: 0xf3e7d6, bars: 0xd9874a, head: 0x56636f, cheek: 0xe8a060, wing: 0x5f6c7c, tip: 0x3f4a56, under: 0xe8dccb, tailTop: 0x6a7686, beak: 0x2f2f33, cere: 0xe8c84a, eyeRing: 0xf2a020, feet: 0xf0c83a },
+  finch: { scale: 0.95, body: [.2, .2, .42], headR: .09, headY: .08, headZ: .24, wingZ: .04, span: .18, beakLen: .8, hook: .2,
+    profile: [[0, -.5], [.2, -.3], [.5, .05], [.44, .32], [0, .5]],
+    inner: [[0, .08], [.18, .07], [.18, -.08], [0, -.09]], outer: [[0, .07], [.2, .03], [.24, -.04], [.12, -.08], [0, -.08]],
+    tail: [[-.04, 0], [-.05, -.22], [.05, -.22], [.04, 0]],
+    back: 0x8a6a4c, belly: 0xd98f78, head: 0x6f8aa6, wing: 0x3a3836, tip: 0x2c2a28, under: 0xd8cfc4, beak: 0xa8a6a0, feet: 0x9a8a80 },
+});
+
+// Each playable bird flies differently, has its own special skill and its own favourite food.
+const SPECIES = {
+  peregrine: { look: 'falcon', name: 'Peregrine Falcon', plural: 'Peregrines', drag: .0016, tuckDrag: .00098, arrowDrag: .00078, thrust: 1.5, lift: 2.6, turn: 1.95, energy: 100, flapCost: 13, maxSpeed: 115, thermal: 1, ability: null, start: 7,
+    diet: { pigeon: 1, teal: 1, crow: 1, finch: .8, shrew: 1, eel: 1, fish: .3, hare: .1, carrion: .6 } },
+  eagle: { look: 'eagle', name: 'Golden Eagle', plural: 'Golden eagles', drag: .0013, tuckDrag: .0016, arrowDrag: .0013, thrust: 1.4, lift: 2.8, turn: 1.4, energy: 140, flapCost: 15, maxSpeed: 90, thermal: 1.3, ability: 'sight', start: 7,
+    diet: { hare: 1.2, crow: .9, teal: .8, pigeon: .7, shrew: .9, fish: .6, eel: .7, carrion: 1, finch: .3 } },
+  owl: { look: 'owl', name: 'Barn Owl', plural: 'Barn owls', drag: .0024, tuckDrag: .0035, arrowDrag: .003, thrust: 1.4, lift: 3, turn: 2.4, energy: 90, flapCost: 10, maxSpeed: 60, thermal: .8, ability: 'listen', nocturnal: true, silent: true, start: 19.5,
+    diet: { shrew: 1.25, finch: .6, pigeon: .4, teal: .2, crow: .2, eel: .3, fish: .2, hare: .1, carrion: .5 } },
+  osprey: { look: 'osprey', name: 'Osprey', plural: 'Ospreys', drag: .0017, tuckDrag: .0014, arrowDrag: .0012, thrust: 1.5, lift: 2.8, turn: 1.7, energy: 110, flapCost: 12, maxSpeed: 90, thermal: 1, ability: 'hover', start: 7,
+    diet: { fish: 1.3, eel: 1.2, pigeon: .15, teal: .15, crow: .1, finch: .1, shrew: .15, hare: .05, carrion: .1 } },
+  kite: { look: 'kite', name: 'Red Kite', plural: 'Red kites', drag: .0011, tuckDrag: .0025, arrowDrag: .002, thrust: 1.2, lift: 2.4, turn: 2.6, energy: 120, flapCost: 11, maxSpeed: 80, thermal: 1.2, ability: 'scan', start: 7,
+    diet: { carrion: 1.25, shrew: .9, finch: .4, pigeon: .3, eel: .5, fish: .4, crow: .2, teal: .2, hare: .1 } },
+  hawk: { look: 'hawk', name: 'Sparrowhawk', plural: 'Sparrowhawks', drag: .002, tuckDrag: .0018, arrowDrag: .0015, thrust: 2.2, lift: 3, turn: 2.9, energy: 80, flapCost: 16, maxSpeed: 90, thermal: .9, ability: 'burst', treeSafe: true, start: 7,
+    diet: { finch: 1.3, pigeon: .8, shrew: .6, crow: .3, teal: .3, eel: .3, fish: .1, hare: .05, carrion: .3 } },
+};
+const ABILITY = {
+  sight: { label: 'SIGHT', name: 'Keen sight', hold: false },
+  listen: { label: 'LISTEN', name: 'Listen', hold: true },
+  hover: { label: 'HOVER', name: 'Hover', hold: true },
+  scan: { label: 'SCAN', name: 'Scan for food', hold: false },
+  burst: { label: 'BURST', name: 'Burst of speed', hold: false },
+};
+let spId = 'peregrine', SP = SPECIES.peregrine;
+
 const PREY = {
   pigeon: { name: 'Wood pigeon', xp: 40, speed: 15, flee: 23, alert: 45, feathers: [0x9aa2b0, 0xb8a2ae, 0xe9e9ee], food: 45 },
   teal: { name: 'Teal', xp: 90, speed: 20, flee: 30, alert: 60, feathers: [0x8d8f8a, 0xdcd2bf, 0x2c6e52], food: 55 },
   crow: { name: 'Carrion crow', xp: 60, speed: 13, flee: 21, alert: 40, feathers: [0x1e2026, 0x30333a, 0x111214], food: 55 },
   shrew: { name: 'Shrew', xp: 12, food: 22, feathers: [0x5e4632, 0xb8a58a], critter: true, range: 160 },
   eel: { name: 'Eel', xp: 30, food: 35, feathers: [0x4b5a2c, 0xcfe8f5, 0xffffff], critter: true, range: 260 },
+  finch: { name: 'Chaffinch', xp: 25, speed: 11, flee: 17, alert: 30, feathers: [0x8a6a4c, 0xd98f78, 0x6f8aa6], food: 18 },
+  hare: { name: 'Mountain hare', xp: 70, food: 70, feathers: [0x8a6a48, 0xd8c8a8], critter: true, range: 300 },
+  fish: { name: 'Brown trout', xp: 45, food: 45, feathers: [0xcfe8f5, 0xffffff, 0x9fd0ec], critter: true, range: 260 },
+  carrion: { name: 'Dead rabbit', xp: 20, food: 50, feathers: [0x8a7a68, 0xb0a08a], critter: true, range: 300 },
 };
 const catchable = p => p.state === 'fly' || p.state === 'active';
 
-// ---------- eyrie ----------
-const EZ = -180, EX = riverX(EZ) - CLIFF - 22, EY = heightAt(EX, EZ);
+// ---------- nests: every species has its own home ----------
+const PEREGRINE_Z = -180, PEREGRINE_X = riverX(PEREGRINE_Z) - CLIFF - 22;
+let EZ = PEREGRINE_Z, EX = PEREGRINE_X, EY = heightAt(EX, EZ);
 const EYRIE = new V3(EX, EY, EZ);
 const chicks = [];
 let chickHop = 0;
-{
-  const g = new THREE.Group(); g.position.copy(EYRIE);
+const NESTS = {};
+function buildNest(id, x, y, z, { scale = 1.3, rocks = false, rags = false, perch = [2.4, 1.0, 0.6], chicksN = 3, owlets = false } = {}) {
+  const g = new THREE.Group(); g.position.set(x, y, z);
   const nest = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.6, 6, 14).rotateX(Math.PI / 2), toon(0x7a5a3a)); nest.position.y = 0.4; g.add(nest);
   const fill = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.2, 0.5, 12), toon(0x5a4129)); fill.position.y = 0.3; g.add(fill);
-  const rockG = new THREE.DodecahedronGeometry(1, 0), rockM = toon(0x8f887c);
-  for (let i = 0; i < 7; i++) { const r = new THREE.Mesh(rockG, rockM), a = i / 7 * 6.28; r.scale.setScalar(1 + rand() * 1.6); r.position.set(Math.cos(a) * 4.2, 0.3, Math.sin(a) * 4.2); g.add(r); }
-  const fluff = new THREE.IcosahedronGeometry(0.5, 0), fluffM = toon(0xfbf8f1), beakM = toon(0x30343b), eyeM = toon(0x0d0d0d);
-  for (let i = 0; i < 3; i++) {
+  if (rocks) { const rockG = new THREE.DodecahedronGeometry(1, 0), rockM = toon(0x8f887c); for (let i = 0; i < 7; i++) { const r = new THREE.Mesh(rockG, rockM), a = i / 7 * 6.28; r.scale.setScalar(1 + rand() * 1.6); r.position.set(Math.cos(a) * 4.2, 0.3, Math.sin(a) * 4.2); g.add(r); } }
+  // red kites really do decorate their nests with rags and litter
+  if (rags) for (let i = 0; i < 4; i++) { const r = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.35), toon([0xf2f2f2, 0x4a7fc0, 0xe0c040, 0xd04040][i], { side: THREE.DoubleSide })); r.position.set(Math.cos(i * 1.6) * 1.6, 0.7, Math.sin(i * 1.6) * 1.6); r.rotation.set(rand(), rand() * 6, rand()); g.add(r); }
+  const fluff = new THREE.IcosahedronGeometry(0.5, 0), fluffM = toon(0xfbf8f1), beakM = toon(owlets ? 0xe6d3b0 : 0x30343b), eyeM = toon(0x0d0d0d);
+  for (let i = 0; i < chicksN; i++) {
     const c = new THREE.Group(); c.position.set((i - 1) * 0.75, 0.7, (i % 2) * 0.4 - 0.2); c.rotation.y = Math.PI / 2 + (i - 1) * 0.4;
     const b = new THREE.Mesh(fluff, fluffM); b.scale.set(.75, .7, .75); c.add(b);
     const hd = new THREE.Group(); hd.position.set(0, .5, .18); c.add(hd);
-    const hm = new THREE.Mesh(fluff, fluffM); hm.scale.setScalar(.45); hd.add(hm);
+    const hm = new THREE.Mesh(fluff, fluffM); hm.scale.setScalar(owlets ? .55 : .45); hd.add(hm);
     const bk = new THREE.Mesh(new THREE.ConeGeometry(.06, .16, 4).rotateX(Math.PI / 2), beakM); bk.position.set(0, -.03, .24); hd.add(bk);
     for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.OctahedronGeometry(.05, 0), eyeM); e.position.set(s * .13, .06, .16); hd.add(e); }
     g.add(c); chicks.push({ g: c, hd, ph: i * 1.7 });
   }
   g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
-  g.scale.setScalar(1.3);
+  g.scale.setScalar(scale);
   scene.add(g);
+  NESTS[id] = { x, y, z, perch: new V3(x + perch[0], y + perch[1], z + perch[2]) };
+}
+function nearestTree(x, z, kind) { let best = null, bd = Infinity; for (const t of TREES) { if (kind && t.kind !== kind) continue; const d = Math.hypot(t.x - x, t.z - z); if (d < bd) { bd = d; best = t; } } return best; }
+buildNest('peregrine', EX, EY, EZ, { rocks: true });
+{
+  // golden eagle: the highest gentle crag in the western mountains, below the thin air
+  let best = null, bh = -1;
+  for (let x = -1000; x < -500; x += 20) for (let z = -900; z < 900; z += 20) {
+    const h = heightAt(x, z); if (h < bh || h > THIN_AIR - 70 || Math.hypot(x, z) > 980 || slopeAt(x, z) < 0.75) continue; bh = h; best = [x, z];
+  }
+  buildNest('eagle', best[0], bh, best[1], { scale: 1.9, rocks: true, chicksN: 2, perch: [3.6, 1.4, 0.8] });
+  // barn owl: an old barn out in the fields, nest up on its roof beam
+  let bx = riverX(-120) + 230, bz = -120;
+  for (let k = 0; k < 200; k++) { const x = riverX(-120) + 180 + rand() * 160, z = -220 + rand() * 200; const h = heightAt(x, z); if (h > 4 && h < 40 && slopeAt(x, z) > 0.95 && !treesNear(x, z).some(t => Math.hypot(t.x - x, t.z - z) < 18)) { bx = x; bz = z; break; } }
+  const bh2 = heightAt(bx, bz), barn = new THREE.Group();
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(9, 7, 15), toon(0x8a3b2a)); walls.position.y = 3.5; barn.add(walls);
+  const roofB = new THREE.Mesh(new THREE.CylinderGeometry(0, 6.4, 3.6, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 1.75), toon(0x4a4f58)); roofB.position.y = 8.8; barn.add(roofB);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(3.2, 4.2, 0.2), toon(0x3a2418)); door.position.set(0, 2.1, 7.55); barn.add(door);
+  const hole = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 0.2), new THREE.MeshBasicMaterial({ color: 0x120c08 })); hole.position.set(0, 7.2, 7.55); barn.add(hole);
+  barn.position.set(bx, bh2 - 0.2, bz); barn.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); scene.add(barn);
+  COLLIDERS.push({ x: bx, z: bz, r: 7, top: bh2 + 10.4, name: 'barn roof' });
+  buildNest('owl', bx, bh2 + 10.2, bz, { scale: 1.1, owlets: true, chicksN: 3, perch: [0, 1.0, 2.6] });
+  // osprey: a big stick nest on top of a dead tree by the river
+  let ox = riverX(560) + 52, oz = 560;
+  for (let k = 0; k < 40 && heightAt(ox, oz) < 2; k++) ox += 4;
+  const oh = heightAt(ox, oz), snag = new THREE.Group(), deadM = toon(0x8f8a80);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, 20, 6), deadM); trunk.position.y = 10; snag.add(trunk);
+  for (const [a, y] of [[0.6, 12], [2.5, 15], [4.2, 9]]) { const br = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 5, 5), deadM); br.position.set(Math.cos(a) * 1.6, y, Math.sin(a) * 1.6); br.rotation.set(Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9); snag.add(br); }
+  snag.position.set(ox, oh, oz); snag.traverse(m => { m.castShadow = true; }); scene.add(snag);
+  COLLIDERS.push({ x: ox, z: oz, r: 1.4, top: oh + 19.6, name: 'dead tree' });
+  buildNest('osprey', ox, oh + 19.6, oz, { scale: 1.6, chicksN: 2, perch: [2.4, 1.2, 0.6] });
+  // red kite: high in a big oak, decorated with rags
+  const kt = nearestTree(riverX(300) + 330, 300, 'oak');
+  buildNest('kite', kt.x, kt.top - 0.6, kt.z, { scale: 1.2, rags: true, chicksN: 2, perch: [2.2, 1.0, 0.4] });
+  // sparrowhawk: tucked into a conifer in the woods
+  const ht = nearestTree(riverX(-420) + 280, -420, 'pine');
+  buildNest('hawk', ht.x, ht.perchY - 1.5, ht.z, { scale: 0.9, chicksN: 3, perch: [1.8, 0.9, 0.3] });
 }
 const beacon = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 340, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xf0c02a, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
 beacon.position.set(EX, EY + 170, EZ); beacon.visible = false; scene.add(beacon);
@@ -829,8 +931,8 @@ function updateTime(dt) {
   TOD.hour += dt * TOD.scale / HOUR;
   if (TOD.hour >= 24) { TOD.hour -= 24; TOD.day++; }
   if (game.state === 'play') {
-    if (before < 20 && TOD.hour >= 20) toast('Night is falling. Find a safe place to sleep: a tree or your nest.', 'gold', 4500);
-    if (before < 6 && TOD.hour >= 6 && F.mode !== 'sleep') toast('Dawn. Time to hunt!', 'gold');
+    if (before < 20 && TOD.hour >= 20) toast(SP.nocturnal ? 'Night has fallen. Time to hunt!' : 'Night is falling. Find a safe place to sleep: a tree or your nest.', 'gold', 4500);
+    if (before < 6 && TOD.hour >= 6 && F.mode !== 'sleep') toast(SP.nocturnal ? 'Dawn. Find your barn or a tree and sleep through the day.' : 'Dawn. Time to hunt!', 'gold', 4500);
   }
   const a = (TOD.hour - 6) / 12 * Math.PI;
   SUN_DIR.set(Math.cos(a) * 0.85, Math.sin(a), 0.35).normalize();
@@ -842,7 +944,7 @@ function updateTime(dt) {
   skyU.horizon.value.copy(SKY.dayHor).lerp(SKY.nightHor, nightF).lerp(SKY.duskHor, dusk * 0.7);
   skyU.night.value = nightF;
   scene.fog.color.copy(skyU.horizon.value);
-  hemi.intensity = lerp(1.05, 0.38, nightF);
+  hemi.intensity = lerp(1.05, 0.38, nightF) + (SP.nocturnal ? nightF * 0.75 : 0);  // owls see well in the dark
   hemi.color.copy(SKY.hemiDay).lerp(SKY.hemiNight, nightF); hemi.groundColor.copy(SKY.gDay).lerp(SKY.gNight, nightF);
   if (elev > -0.03) { sun.intensity = 2.1 * smooth(-0.03, 0.2, elev); sun.color.copy(SKY.sunCol).lerp(SKY.duskCol, dusk * 0.7); LIGHT_DIR.copy(SUN_DIR); }
   else { sun.intensity = 0.6 * nightF; sun.color.copy(SKY.moonCol); LIGHT_DIR.copy(MOON_DIR); }
@@ -861,7 +963,7 @@ const store = {
 };
 const settings = { invert: false, muted: false, autoLevel: false, ...(store.get(SETTINGS_KEY) || {}) };
 const saveSettings = () => store.set(SETTINGS_KEY, settings);
-const blankStats = () => ({ pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
+const blankStats = () => ({ pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, finch: 0, hare: 0, fish: 0, carrion: 0, scans: 0, bursts: 0, listenTime: 0, hoverTime: 0, woodsTime: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
 let prog = { xp: 0, mission: 0, stats: blankStats(), done: false };
 const stats = () => prog.stats;
 
@@ -891,13 +993,35 @@ const FACTS = {
   tiercel: 'Female peregrines are about a third bigger than males. A male is called a tiercel, from an old word meaning "a third".',
   eagle: 'Golden eagles are one of Britain\'s biggest birds of prey, with wings over 2 m across. They live mostly in the Scottish Highlands and will attack other raptors.',
   crow: 'Crows often "mob" birds of prey, calling loudly and diving at them to chase them off, but they rarely hurt them. Peregrines do sometimes catch crows and jackdaws to eat.',
-  shrew: 'Peregrines mostly eat birds, but they will sometimes grab small mammals. Shrews have smelly glands that put off foxes and cats, but birds of prey have a poor sense of smell, so owls and hawks eat them happily.',
+  shrew: 'Shrews have smelly glands that put off foxes and cats, but birds of prey have a poor sense of smell, so owls and hawks eat them happily.',
   eel: 'In real life peregrines very rarely catch fish. Snatching eels and fish from the water is really the osprey\'s job: ospreys have spiky pads on their feet to grip slippery prey.',
   teal: 'Teal are Britain\'s smallest ducks. When danger comes they spring straight up off the water, which is why a group of teal is called a "spring".',
+  eThermal: 'Golden eagles can soar for hours on thermals and ridge winds, hardly flapping their 2 m wide wings.',
+  eSight: 'An eagle\'s eyesight is several times sharper than ours. It can spot a hare moving more than a kilometre away.',
+  eHare: 'Mountain hares and red grouse are the golden eagle\'s main food in Scotland. Mountain hares turn white in winter to hide in the snow.',
+  eChicks: 'Golden eagles usually lay two eggs, but often only the older, stronger chick survives.',
+  eNest: 'A golden eagle eyrie can be used for decades. The pair add sticks every year, so some nests grow taller than a person.',
+  oHear: 'Barn owls can catch mice in complete darkness using only their hearing. Their heart-shaped face works like a satellite dish, funnelling sound to their ears.',
+  oSilent: 'Barn owl wings have soft, comb-like edges that hush the sound of the air, so prey can\'t hear them coming.',
+  oPellet: 'Owls swallow small prey whole, then cough up the bones and fur as a neat "pellet". Scientists open pellets to find out what owls eat.',
+  oBarn: 'Barn owls nest in old barns, hollow trees and nest boxes. Lots of farmers put up boxes to help them.',
+  oFood: 'A barn owl eats about four small mammals a night, mostly field voles, shrews and wood mice.',
+  pHover: 'Ospreys hover high over the water to pinpoint a fish before they dive.',
+  pFish: 'Ospreys dive feet-first and can plunge right under the water. They can close their nostrils to keep the water out.',
+  pBack: 'Ospreys disappeared from Britain in 1916. They came back to Scotland in the 1950s and now a few hundred pairs nest here.',
+  pMigrate: 'Every autumn, British ospreys fly about 5,000 km to West Africa for the winter, then return in spring.',
+  kScav: 'Red kites are mainly scavengers. In medieval London they helped clean up rubbish and scraps from the streets.',
+  kBack: 'Red kites were almost wiped out in Britain. They were brought back from 1989 and there are now thousands across the country.',
+  kTail: 'A red kite twists its forked tail like a rudder to steer, so it can glide in slow, tight circles.',
+  kNest: 'Red kites decorate their nests with strange things they find: rags, crisp packets, plastic bags, even underwear!',
+  hWoods: 'Sparrowhawks have short, rounded wings and a long tail, perfect for twisting between trees at speed.',
+  hAmbush: 'Sparrowhawks hunt by surprise. They use hedges and trees as cover, then burst out to snatch small birds.',
+  hSize: 'Female sparrowhawks are almost twice as heavy as males, so they can catch bigger birds like pigeons.',
+  hGarden: 'Sparrowhawks often hunt around garden bird feeders, where small birds gather.',
   wind: 'Wind usually gets stronger the higher you go, and it often changes direction with height too. Birds of prey use it: kestrels hover by facing into the wind.',
   fox: 'Foxes will happily eat a bird that lands on the ground. That is one reason birds of prey prefer to rest high up on cliffs and in trees.',
 };
-const MISSIONS = [
+const PEREGRINE_MISSIONS = [
   { title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact: 'thermal' },
   { title: 'Touch down', text: () => `Slow below 60 km/h, ${KEY.up} to flare, then land gently on the ground, a tree top or your nest.`, done: s => s.landings >= 1, fact: 'landing' },
   { title: 'The stoop', text: () => `Climb high, then hold ${KEY.dive} to fold your wings and dive faster than 180 km/h.`, done: s => s.topSpeed >= 180, fact: 'stoop' },
@@ -909,19 +1033,87 @@ const MISSIONS = [
   { title: 'Living arrow', text: () => 'Make a Stoop Strike: catch prey while diving faster than 200 km/h.', done: s => s.stoops >= 1, fact: 'ddt' },
   { title: 'Lord of the Valley', text: () => 'Feed your chicks 5 times in total.', done: s => s.fed >= 5, fact: 'tiercel' },
 ];
+const Q = {
+  thermal: fact => ({ title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact }),
+  land: fact => ({ title: 'Touch down', text: () => `Slow below 60 km/h, ${KEY.up} to flare, then land gently.`, done: s => s.landings >= 1, fact }),
+  feed: fact => ({ title: 'Hungry mouths', text: () => 'Carry your catch home to your nest (gold beam) to feed your chicks.', done: s => s.fed >= 1, fact }),
+  drink: fact => ({ title: 'Thirsty work', text: () => `Land on the river bank, walk to the water's edge and press ${KEY.act} to drink.`, done: s => s.drinks >= 1, fact }),
+  roost: fact => ({ title: 'Safe roost', text: () => `Land in a tree or your nest and press ${KEY.sleep} to sleep.`, done: s => s.sleeps >= 1, fact }),
+  master: (title, fact) => ({ title, text: () => 'Feed your chicks 5 times in total.', done: s => s.fed >= 5, fact }),
+};
+const MISSION_SETS = {
+  peregrine: PEREGRINE_MISSIONS,
+  eagle: [
+    Q.thermal('eThermal'),
+    { title: 'Keen sight', text: () => `Press ${KEY.skill} to use your eagle eyes and spot hares far away.`, done: s => s.scans >= 1, fact: 'eSight' },
+    { title: 'Mountain hare', text: () => 'Catch a mountain hare on the high moors. Swoop in low and fast before it bolts.', done: s => s.hare >= 1, fact: 'eHare' },
+    Q.feed('eChicks'), Q.drink('drink'), Q.roost('eNest'),
+    Q.master('King of the Glen', 'eagle'),
+  ],
+  owl: [
+    { title: 'Listen in the dark', text: () => `Hold ${KEY.skill} to listen. You'll hear shrews rustling, even hidden in the grass.`, done: s => s.listenTime >= 3, fact: 'oHear' },
+    { title: 'Silent hunter', text: () => 'Catch a shrew. Glide in low and slow: your silent wings mean it won\'t hear you coming.', done: s => s.shrew >= 1, fact: 'oSilent' },
+    { title: 'Hungry owlets', text: () => 'Carry your catch home to your barn (gold beam) to feed your owlets.', done: s => s.fed >= 1, fact: 'oPellet' },
+    Q.drink('drink'),
+    { title: 'Sleep through the day', text: () => `When dawn comes, land in your barn or a tree and press ${KEY.sleep} to sleep.`, done: s => s.sleeps >= 1, fact: 'oBarn' },
+    Q.master('Ghost of the Fields', 'oFood'),
+  ],
+  osprey: [
+    Q.thermal('thermal'),
+    { title: 'Hover', text: () => `Hold ${KEY.skill} to hover in one spot for 3 seconds.`, done: s => s.hoverTime >= 3, fact: 'pHover' },
+    { title: 'Gone fishing', text: () => 'Hover over a trout (a shadow under the water), then dive feet-first into the river to grab it.', done: s => s.fish >= 1, fact: 'pFish' },
+    Q.feed('pBack'),
+    { title: 'Slippery catch', text: () => 'Snatch an eel when it comes up near the river bank.', done: s => s.eel >= 1, fact: 'eel' },
+    Q.roost('pMigrate'),
+    Q.master('Fish Hawk', 'drink'),
+  ],
+  kite: [
+    Q.thermal('kTail'),
+    { title: 'Scan for food', text: () => `Press ${KEY.skill} to scan the fields for something to scavenge.`, done: s => s.scans >= 1, fact: 'kScav' },
+    { title: 'An easy meal', text: () => 'Swoop down slowly and pick up a dead rabbit from the fields.', done: s => s.carrion >= 1, fact: 'kBack' },
+    Q.feed('kNest'),
+    { title: 'Shrew snack', text: () => 'Catch a shrew in the grass.', done: s => s.shrew >= 1, fact: 'shrew' },
+    Q.roost('sleep'),
+    Q.master('Lord of the Skies', 'wind'),
+  ],
+  hawk: [
+    Q.land('landing'),
+    { title: 'Burst of speed', text: () => `Press ${KEY.skill} for a sudden burst of speed.`, done: s => s.bursts >= 1, fact: 'hAmbush' },
+    { title: 'Ambush', text: () => 'Catch a chaffinch. Burst out from the trees to surprise one.', done: s => s.finch >= 1, fact: 'hGarden' },
+    { title: 'Through the trees', text: () => 'Fly through the woods faster than 50 km/h for 5 seconds. Sparrowhawks can weave between the branches.', done: s => s.woodsTime >= 5, fact: 'hWoods' },
+    Q.feed('chicks'),
+    { title: 'Pigeon hunter', text: () => 'Catch a wood pigeon, a big meal for a sparrowhawk.', done: s => s.pigeon >= 1, fact: 'hSize' },
+    Q.master('Master of the Woods', 'sleep'),
+  ],
+};
+const missions = () => MISSION_SETS[spId];
 
 // ---------- player falcon ----------
-const falcon = makeBird(LOOK.falcon);
-scene.add(falcon.group);
-falcon.group.rotation.order = 'YXZ';
-const LEG = 0.5;  // how high the body sits above the ground when standing
+let falcon = null;
+let LEG = 0.5;  // how high the body sits above the ground when standing
+let SIZE = 1;   // body size compared with a peregrine, used to place the camera
+function setSpecies(id) {
+  spId = SPECIES[id] ? id : 'peregrine'; SP = SPECIES[spId];
+  if (falcon) { if (F.carry) dropCarry(); scene.remove(falcon.group); }
+  falcon = makeBird(LOOK[SP.look]);
+  falcon.group.rotation.order = 'YXZ';
+  scene.add(falcon.group);
+  SIZE = falcon.scale / 1.5; LEG = 0.5 * SIZE;
+  const n = NESTS[spId]; EX = n.x; EY = n.y; EZ = n.z; EYRIE.set(EX, EY, EZ);
+  beacon.position.set(EX, EY + 170, EZ);
+  eagle.b.group.visible = spId !== 'eagle';
+  const ab = SP.ability && ABILITY[SP.ability];
+  $('bSkill').hidden = !ab; if (ab) $('bSkill').textContent = ab.label;
+  $('birdHead').textContent = 'Your ' + SP.name.toLowerCase();
+  $('factHead').textContent = 'Bird fact';
+}
 const F = {
   pos: new V3(), prev: new V3(), fwd: new V3(0, 0, 1), yaw: 0, pitch: 0, roll: 0, speed: 22, tuck: 0, flare: 0, flapPh: 0,
   mode: 'perch', perchType: 'nest', tree: null, stunT: 0, moving: false, drinkT: 0, carry: null,
   health: 100, energy: 100, food: 75, water: 75, rest: 85, exhausted: false,
   inThermal: false, thin: false, stall: false, hidden: false, flapSnd: 0, edgeWarned: false, wind: new V3(), sink: 0,
 };
-const maxEnergy = () => has('wings') ? 130 : 100;
+const maxEnergy = () => SP.energy * (has('wings') ? 1.3 : 1);
 const energyCap = () => maxEnergy() * (F.rest < 10 ? 0.5 : 1) * (F.health < 35 ? 0.7 : 1);
 const atNest = () => (F.mode === 'perch' || F.mode === 'sleep') && F.perchType === 'nest';
 
@@ -990,7 +1182,7 @@ function updatePrey(dt, playing) {
     const T = PREY[p.type];
     p.dodgeT = Math.max(0, p.dodgeT - dt);
     tA.subVectors(p.pos, F.pos); const d = tA.length();
-    if (playing && F.mode === 'fly' && d < T.alert) p.fleeT = Math.max(p.fleeT, 2.6);
+    if (playing && F.mode === 'fly' && d < T.alert * (SP.silent ? 0.45 : 1)) p.fleeT = Math.max(p.fleeT, 2.6);
     if (p.fleeT > 0) {
       p.fleeT -= dt; p.jink += dt;
       tA.normalize().multiplyScalar(T.flee);
@@ -1054,6 +1246,10 @@ function animatePrey(p, dt) {
     if (!fleeing && p.glideT > 0) { animWings(p.b, { dihedral: 0.35 }); return; }
     p.phase += dt * (fleeing ? 16 : 10);
     animWings(p.b, { ph: p.phase, amp: fleeing ? 1.0 : 0.85 });
+  } else if (p.type === 'finch') {
+    // small birds bound along: a burst of flaps, then a dip with wings shut
+    const cycle = (game.t * 2.2 + p.phase) % 1;
+    if (cycle < 0.55 || fleeing) { p.phase += dt * 24; animWings(p.b, { ph: p.phase, amp: 0.9 }); } else animWings(p.b, { tuck: 0.9 });
   } else if (p.type === 'crow') {
     // crows row along with slow, deep, even beats
     p.phase += dt * (fleeing ? 11 : 7.5);
@@ -1103,9 +1299,58 @@ function makeEel() {
   g.scale.setScalar(2);
   return { group: g, scale: 2, wings: [], legs: { visible: false }, segs };
 }
+function makeHare() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
+  const fur = 0x8a6a48, pale = 0xd8c8a8;
+  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.36, 0.34, 0.62), n => n.y < -0.3 ? pale : fur)); body.position.y = 0.3; g.add(body);
+  const head = new THREE.Group(); head.position.set(0, 0.5, 0.3); g.add(head);
+  head.add(M(facet(new THREE.IcosahedronGeometry(0.15, 0).scale(0.9, 0.9, 1.2), () => fur)));
+  for (const sx of [-1, 1]) {
+    const ear = M(facet(new THREE.BoxGeometry(0.05, 0.3, 0.08).translate(0, 0.15, 0), (n, m) => m.y > 0.24 ? 0x222222 : fur)); ear.position.set(sx * 0.05, 0.08, -0.04); ear.rotation.set(-0.35, 0, sx * 0.15); head.add(ear);
+    const e = M(facet(new THREE.OctahedronGeometry(0.025, 0), () => 0x1a1208)); e.position.set(sx * 0.1, 0.03, 0.07); head.add(e);
+  }
+  const tail = M(facet(new THREE.IcosahedronGeometry(0.07, 0), () => 0xf4f0e8)); tail.position.set(0, 0.36, -0.32); g.add(tail);
+  g.scale.setScalar(1.4); g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return { group: g, scale: 1.4, wings: [], legs: { visible: false }, head };
+}
+function makeFish() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat), segs = [];
+  for (let i = 0; i < 4; i++) {
+    const k = [0.8, 1, 0.8, 0.5][i];
+    const sg = M(facet(new THREE.OctahedronGeometry(1, 0).scale(0.06 * k, 0.1 * k, 0.16), (n, m) => n.y < -0.3 ? 0xe8dcc0 : (i + Math.floor(m.z * 30)) % 3 === 0 ? 0x3a2a1a : 0x7a6a48));
+    sg.position.z = 0.3 - i * 0.2; g.add(sg); segs.push(sg);
+  }
+  const fin = M(facet(new THREE.ConeGeometry(0.1, 0.14, 3).rotateX(-Math.PI / 2).scale(0.3, 1, 1), () => 0x6a5a3a)); fin.position.z = -0.4; g.add(fin); segs.push(fin);
+  g.scale.setScalar(1.8);
+  return { group: g, scale: 1.8, wings: [], legs: { visible: false }, segs };
+}
+function makeCarrion() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
+  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.3, 0.2, 0.55), n => n.y > 0.4 ? 0xb0a08a : 0x8a7a68)); body.position.y = 0.1; body.rotation.z = 1.2; g.add(body);
+  const head = M(facet(new THREE.IcosahedronGeometry(0.13, 0), () => 0x8a7a68)); head.position.set(0.05, 0.1, 0.3); g.add(head);
+  for (const sx of [-1, 1]) { const ear = M(facet(new THREE.BoxGeometry(0.05, 0.03, 0.22), () => 0x7a6a58)); ear.position.set(0.08 + sx * 0.05, 0.06, 0.45); g.add(ear); }
+  g.scale.setScalar(1.3);
+  return { group: g, scale: 1.3, wings: [], legs: { visible: false } };
+}
+function surfaceFish(p) {
+  for (let k = 0; k < 30; k++) {
+    const z = (rand() - .5) * 1800, x = riverX(z) + (rand() - .5) * 30;
+    if (heightAt(x, z) < -1.5) { p.pos.set(x, -0.5, z); p.yaw = rand() * 6.28; p.state = 'active'; p.t = 0; p.jumpT = 2 + rand() * 4; p.b.group.visible = true; return; }
+  }
+  p.t = 0; p.hideFor = 3;
+}
+function placeCarrion(p) {
+  for (let k = 0; k < 40; k++) {
+    const x = (rand() - .5) * 1800, z = (rand() - .5) * 1800, h = heightAt(x, z);
+    if (h > 3 && h < 80 && slopeAt(x, z) > 0.9 && Math.hypot(x - VX, z - VZ) > 80) { p.pos.set(x, groundAt(x, z), z); break; }
+  }
+  p.state = 'active'; p.t = 0; p.b.group.visible = true;
+  p.b.group.position.copy(p.pos); p.b.group.rotation.set(0, rand() * 6.28, 0);
+}
 function hideCritter(p, secs, move) {
   p.state = 'hidden'; p.t = 0; p.hideFor = secs; p.b.group.visible = false; p.fleeT = 0;
-  if (move && p.type === 'shrew') {
+  if (p.type === 'carrion') { placeCarrion(p); p.state = 'hidden'; p.b.group.visible = false; return; }
+  if (move && (p.type === 'shrew' || p.type === 'hare')) {
     for (let k = 0; k < 10; k++) { const x = p.home.x + (rand() - .5) * 40, z = p.home.z + (rand() - .5) * 40; if (heightAt(x, z) > 1.5) { p.pos.set(x, groundAt(x, z), z); break; } }
   }
 }
@@ -1119,8 +1364,8 @@ function surfaceEel(p) {
 const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 0, yaw: rand() * 6.28, moveT: 0, ran: false, respawn: 0 });
 {
   let made = 0;
-  const near = [[EX + 40, EZ + 30], [EX - 60, EZ - 50], [EX - 30, EZ + 120], [EX + 20, EZ - 140]];
-  for (let k = 0; k < 600 && made < 44; k++) {
+  const on = NESTS.owl, near = [[on.x + 40, on.z + 30], [on.x - 50, on.z - 20], [on.x + 10, on.z - 60], [EX + 40, EZ + 30], [EX - 60, EZ - 50]];
+  for (let k = 0; k < 800 && made < 52; k++) {
     let x, z;
     if (k < 60) { const n = near[k % near.length]; x = n[0] + (rand() - .5) * 30; z = n[1] + (rand() - .5) * 30; }
     else { x = (rand() - .5) * 1800; z = (rand() - .5) * 1800; }
@@ -1130,6 +1375,27 @@ const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 
     prey.push({ type: 'shrew', b, pos: new V3(x, groundAt(x, z), z), home: new V3(x, 0, z), state: 'active', ...critterBase() });
     made++;
   }
+  // mountain hares on the high moors, some near the eagle's crag
+  made = 0;
+  for (let k = 0; k < 2000 && made < 20; k++) {
+    const nx = NESTS.eagle, near = k < 300;
+    const x = near ? nx.x + (rand() - .5) * 300 : (rand() - .5) * 1900, z = near ? nx.z + (rand() - .5) * 300 : (rand() - .5) * 1900, h = heightAt(x, z);
+    if (h < 100 || h > THIN_AIR - 30 || slopeAt(x, z) < 0.8 || Math.hypot(x, z) > 1000) continue;
+    if (near && made >= 6) continue;
+    const b = makeHare(); scene.add(b.group);
+    prey.push({ type: 'hare', b, pos: new V3(x, h, z), home: new V3(x, 0, z), state: 'active', ...critterBase() });
+    made++;
+  }
+  for (let i = 0; i < 12; i++) {
+    const b = makeFish(); scene.add(b.group);
+    const p = { type: 'fish', b, pos: new V3(), home: new V3(), state: 'hidden', jumpT: 3, ...critterBase() };
+    hideCritter(p, rand() * 8, false); prey.push(p);
+  }
+  for (let i = 0; i < 8; i++) {
+    const b = makeCarrion(); scene.add(b.group);
+    const p = { type: 'carrion', b, pos: new V3(), home: new V3(), state: 'active', ...critterBase() };
+    placeCarrion(p); prey.push(p);
+  }
   for (let i = 0; i < 9; i++) {
     const b = makeEel(); scene.add(b.group);
     const p = { type: 'eel', b, pos: new V3(), home: new V3(), state: 'hidden', ...critterBase() };
@@ -1138,10 +1404,13 @@ const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 
 }
 function updateCritter(p, dt, playing) {
   p.t += dt; p.dodgeT = Math.max(0, p.dodgeT - dt);
+  if (p.type === 'carrion') return;
+  if (p.type === 'hare') { updateHare(p, dt, playing); return; }
+  if (p.type === 'fish') { updateFish(p, dt); return; }
   if (p.type === 'shrew') {
     if (p.state === 'hidden') { if (p.t > p.hideFor) { p.state = 'active'; p.t = 0; p.b.group.visible = true; } return; }
     const d = Math.hypot(F.pos.x - p.pos.x, F.pos.z - p.pos.z), above = F.pos.y - p.pos.y;
-    if (playing && d < 20 && above < 30 && p.fleeT <= 0 && !p.ran) { p.fleeT = 2.6; p.ran = true; p.yaw = Math.atan2(p.pos.x - F.pos.x, p.pos.z - F.pos.z); }
+    if (playing && d < (SP.silent ? 7 : 20) && above < 30 && p.fleeT <= 0 && !p.ran) { p.fleeT = 2.6; p.ran = true; p.yaw = Math.atan2(p.pos.x - F.pos.x, p.pos.z - F.pos.z); }
     let speed = 0;
     if (p.fleeT > 0) {
       p.fleeT -= dt; speed = 2.6; p.yaw += Math.sin(p.t * 9) * dt * 3;
@@ -1172,6 +1441,42 @@ function updateCritter(p, dt, playing) {
   }
 }
 
+// hares graze, then bolt in zigzags when a big bird comes low over them
+function updateHare(p, dt, playing) {
+  if (p.state === 'hidden') { if (p.t > p.hideFor) { p.state = 'active'; p.t = 0; p.b.group.visible = true; } return; }
+  const d = Math.hypot(F.pos.x - p.pos.x, F.pos.z - p.pos.z), above = F.pos.y - p.pos.y;
+  if (playing && d < 45 && above < 50 && p.fleeT <= 0 && p.moveT > -6) { p.fleeT = 4; p.yaw = Math.atan2(p.pos.x - F.pos.x, p.pos.z - F.pos.z); p.moveT = -6; }
+  let speed = 0;
+  if (p.fleeT > 0) { p.fleeT -= dt; speed = 9; if (Math.sin(p.t * 3) > 0.95) p.yaw += (rand() < .5 ? 1 : -1) * 1.2; }
+  else {
+    p.moveT += dt;
+    if (p.moveT > 0) { if (p.moveT > 1.2) p.moveT = -(2 + rand() * 4); speed = 1.6; }
+    if (Math.hypot(p.pos.x - p.home.x, p.pos.z - p.home.z) > 40) p.yaw = Math.atan2(p.home.x - p.pos.x, p.home.z - p.pos.z);
+  }
+  const nx = p.pos.x + Math.sin(p.yaw) * speed * dt, nz = p.pos.z + Math.cos(p.yaw) * speed * dt;
+  if (heightAt(nx, nz) > 1) { p.pos.x = nx; p.pos.z = nz; } else p.yaw += Math.PI;
+  p.pos.y = groundAt(p.pos.x, p.pos.z);
+  p.vel.set(Math.sin(p.yaw) * speed, 0, Math.cos(p.yaw) * speed);
+  p.b.group.position.copy(p.pos); if (speed) p.b.group.position.y += Math.abs(Math.sin(p.t * (speed > 3 ? 14 : 8))) * (speed > 3 ? 0.35 : 0.12);
+  p.b.group.rotation.set(speed > 3 ? -0.15 : 0, p.yaw, 0);
+  p.b.head.rotation.x = speed ? 0 : Math.sin(p.t * 0.8) > 0.3 ? 0.7 : -0.1;
+}
+// trout swim just under the surface and now and then leap out
+function updateFish(p, dt) {
+  if (p.state === 'hidden') { if (p.t > p.hideFor) surfaceFish(p); return; }
+  if (p.t > 16) { hideCritter(p, 4 + rand() * 8, false); return; }
+  p.yaw += Math.sin(p.t * 0.9 + p.hideFor) * dt * 0.9;
+  const nx = p.pos.x + Math.sin(p.yaw) * 1.2 * dt, nz = p.pos.z + Math.cos(p.yaw) * 1.2 * dt;
+  if (heightAt(nx, nz) < -1.2) { p.pos.x = nx; p.pos.z = nz; } else p.yaw += Math.PI * dt * 3;
+  p.jumpT -= dt;
+  const jump = p.jumpT < 0 ? Math.max(0, Math.sin(-p.jumpT * 4)) : 0;
+  if (p.jumpT < -0.8) p.jumpT = 4 + rand() * 6;
+  p.pos.y = -0.5 + jump * 1.4;
+  p.vel.set(Math.sin(p.yaw) * 1.2, 0, Math.cos(p.yaw) * 1.2);
+  p.b.group.position.copy(p.pos); p.b.group.rotation.set(jump ? -0.6 * Math.cos(-p.jumpT * 4) : 0, p.yaw, 0);
+  p.b.segs.forEach((sg, i) => { sg.position.x = Math.sin(p.t * 8 - i * 1.1) * 0.03 * i; });
+}
+
 // ---------- threats ----------
 function steer(o, target, speed, turn, dt) { tB.subVectors(target, o.pos).setLength(speed); o.vel.lerp(tB, 1 - Math.exp(-turn * dt)); }
 function orientFlyer(o, dt) {
@@ -1184,6 +1489,7 @@ const eagle = { b: makeBird(LOOK.eagle), pos: new V3(), vel: new V3(10, 0, 0), s
 eagle.pos.copy(eagle.center).add(new V3(260, 0, 0));
 scene.add(eagle.b.group);
 function updateEagle(dt) {
+  if (spId === 'eagle') { eagle.b.group.visible = false; return; }
   const E = eagle; E.t += dt; E.cool -= dt;
   const awake = nightF < 0.5;
   E.b.group.visible = awake;
@@ -1224,6 +1530,7 @@ function updateEagle(dt) {
 }
 // crows live in the woods; you can hunt them
 {
+  for (const [x, z] of [[VX - 60, VZ + 20], [riverX(-420) + 260, -420], [riverX(150) - 200, 150], [riverX(620) + 180, 620], [EX + 150, EZ + 200]]) addFlock('finch', new V3(x, 0, z), 110, 3, 16, 6);
   const home = new V3(riverX(80) + 230, 0, 80);
   let best = null, bd = Infinity; for (const t of TREES) { const d = Math.hypot(t.x - home.x, t.z - home.z); if (d < bd) { bd = d; best = t; } }
   if (best) home.set(best.x, 0, best.z);
@@ -1413,8 +1720,8 @@ function updateAudio() {
 // ---------- input ----------
 // inp.y: +1 means nose up (climb) in the air and walk forward on the ground
 const keys = {};
-const touch = { x: 0, y: 0, flap: false, dive: false, id: null, ox: 0, oy: 0 };
-let flapHeld = false;
+const touch = { x: 0, y: 0, flap: false, dive: false, skill: false, id: null, ox: 0, oy: 0 };
+let flapHeld = false, skillHeld = false;
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -1430,7 +1737,7 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 let padPrev = {};
 function readInput() {
-  let x = 0, y = 0, flap = false, tuck = false;
+  let x = 0, y = 0, flap = false, tuck = false, skill = !!keys.KeyQ || touch.skill;
   if (keys.KeyA || keys.ArrowLeft) x -= 1;
   if (keys.KeyD || keys.ArrowRight) x += 1;
   if (keys.KeyW || keys.ArrowUp) y += 1;
@@ -1444,7 +1751,7 @@ function readInput() {
     const dz = v => Math.abs(v) < 0.15 ? 0 : v;
     x += dz(gp.axes[0] || 0); y -= dz(gp.axes[1] || 0);
     const b = i => gp.buttons[i]?.pressed;
-    flap ||= b(0); tuck ||= b(1) || b(7) || b(6);
+    flap ||= b(0); tuck ||= b(1) || b(7) || b(6); skill ||= b(5) || b(4);
     if (b(3) && !padPrev[3]) toggleCam();
     if (b(2) && !padPrev[2]) doAction();
     if (b(9) && !padPrev[9]) togglePause();
@@ -1453,7 +1760,8 @@ function readInput() {
   }
   if (settings.invert && F.mode === 'fly') y = -y;
   const flapPressed = flap && !flapHeld; flapHeld = flap;
-  return { x: clamp(x, -1, 1), y: clamp(y, -1, 1), flap, tuck, flapPressed };
+  const skillPressed = skill && !skillHeld; skillHeld = skill;
+  return { x: clamp(x, -1, 1), y: clamp(y, -1, 1), flap, tuck, flapPressed, skill, skillPressed };
 }
 {
   const zone = $('stickZone'), stick = $('stick'), knob = $('knob');
@@ -1476,7 +1784,7 @@ function readInput() {
     el.addEventListener('pointerdown', e => { touch[key] = true; el.classList.add('on'); el.setPointerCapture(e.pointerId); e.preventDefault(); });
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(ev, () => { touch[key] = false; el.classList.remove('on'); });
   };
-  hold('bFlap', 'flap'); hold('bDive', 'dive');
+  hold('bFlap', 'flap'); hold('bDive', 'dive'); hold('bSkill', 'skill');
   $('bCam').addEventListener('pointerdown', e => { e.preventDefault(); toggleCam(); });
   $('bAct').addEventListener('pointerdown', e => { e.preventDefault(); doAction(); });
   $('sleepScreen').addEventListener('pointerdown', () => wake());
@@ -1529,19 +1837,19 @@ function renderStatus() {
   $('xpBar').style.width = N ? ((prog.xp - L.xp) / (N.xp - L.xp) * 100) + '%' : '100%';
 }
 function renderMission() {
-  const m = MISSIONS[prog.mission];
+  const m = missions()[prog.mission];
   if (!m) { $('mNum').textContent = 'complete'; $('mTitle').textContent = 'Free flight'; $('mText').textContent = 'Hunt, explore and keep your chicks fed. Fed so far: ' + stats().fed + '.'; return; }
-  $('mNum').textContent = `${prog.mission + 1} of ${MISSIONS.length}`; $('mTitle').textContent = m.title; $('mText').textContent = m.text();
+  $('mNum').textContent = `${prog.mission + 1} of ${missions().length}`; $('mTitle').textContent = m.title; $('mText').textContent = m.text();
 }
 function checkMissions() {
-  const m = MISSIONS[prog.mission];
+  const m = missions()[prog.mission];
   if (!m || !m.done(stats())) return;
   prog.mission++;
   toast('Quest complete: ' + m.title, 'gold', 3200); sfx.quest();
   showFact(m.fact);
   gainXP(60);
   renderMission();
-  if (prog.mission >= MISSIONS.length && !prog.done) { prog.done = true; persist(); setTimeout(() => { if (game.state === 'play') { game.paused = true; $('complete').hidden = false; } }, 2500); }
+  if (prog.mission >= missions().length && !prog.done) { prog.done = true; persist(); setTimeout(() => { if (game.state === 'play') { game.paused = true; $('complete').hidden = false; } }, 2500); }
 }
 
 // ---------- injuries ----------
@@ -1573,7 +1881,15 @@ function strikeOdds(p) {
   const kmh = F.speed * 3.6;
   if (PREY[p.type].critter) {
     let c, why;
-    if (p.type === 'shrew') {
+    if (p.type === 'carrion') {
+      c = kmh < 70 ? 0.95 : 0.4; why = 'Too fast to grab it! Slow down and swoop low.';
+    } else if (p.type === 'hare') {
+      c = kmh < 40 ? 0.35 : kmh < 170 ? 0.8 : 0.4;
+      why = kmh >= 170 ? 'Too fast! You overshot the hare.' : kmh < 40 ? 'Too slow! The hare kicked free.' : 'The hare jinked away!';
+      if (p.fleeT > 0) c -= 0.1;
+    } else if (p.type === 'fish') {
+      c = 0.6; why = 'The trout slipped back into the deep water.';
+    } else if (p.type === 'shrew') {
       c = kmh < 15 ? 0.5 : kmh < 90 ? 0.82 : kmh < 140 ? 0.45 : 0.2;
       why = kmh >= 90 ? 'Too fast! You overshot the shrew. Swoop in slower.' : 'The shrew darted into the grass!';
       if (p.fleeT > 0) c -= 0.12;
@@ -1583,7 +1899,7 @@ function strikeOdds(p) {
     }
     if (has('grip')) c += 0.1;
     if (F.health < 40) c -= 0.1;
-    return { chance: clamp(c, 0.05, 0.97), why };
+    return dietOdds(p, c, why);
   }
   let c = kmh < 50 ? 0.2 : kmh < 100 ? 0.45 : kmh < 170 ? 0.7 : kmh < 220 ? 0.86 : 0.95;
   tA.copy(p.vel).normalize();
@@ -1597,14 +1913,22 @@ function strikeOdds(p) {
   if (p.type === 'crow') { c -= 0.08; if (why === '') why = 'The crow twisted away. Crows are tough and agile!'; }
   if (has('grip')) c += 0.1;
   if (F.health < 40) c -= 0.1;
-  if (!why) why = kmh < 100 ? 'Too slow! It dodged. Stoop from above for a cleaner strike.' : 'It jinked away at the last moment!';
-  return { chance: clamp(c, 0.05, 0.97), why };
+  if (!why) why = kmh < 100 ? 'Too slow! It dodged. Come in fast, from above or behind.' : 'It jinked away at the last moment!';
+  if (p.type === 'finch' && SP.treeSafe) c += 0.2;
+  return dietOdds(p, c, why);
+}
+// what each bird is built to catch
+function dietOdds(p, c, why) {
+  const diet = SP.diet[p.type] ?? 1;
+  if (diet < 0.2) why = spId === 'osprey' ? 'Ospreys only really eat fish!' : `${SP.plural} don't really hunt ${PREY[p.type].name.toLowerCase()}s. Too ${p.type === 'hare' ? 'big' : 'tricky'} for you!`;
+  return { chance: clamp(c * diet, 0.03, 0.97), why };
 }
 function tryCatch() {
   if (F.carry) return;
   const R = 3.3 + (has('grip') ? 1.2 : 0);
   for (const p of prey) {
-    if (!catchable(p) || p.dodgeT > 0) continue;
+    const heard = F.listening && p.type === 'shrew' && p.state === 'hidden';
+    if ((!catchable(p) && !heard) || p.dodgeT > 0) continue;
     if (distToSeg(p.pos, F.prev, F.pos) < R) {
       const { chance, why } = strikeOdds(p);
       if (rand() < chance) catchPrey(p);
@@ -1705,7 +2029,7 @@ function trySleep() {
   if (F.mode === 'ground' && nearNest()) { perchAt('nest', true); }
   else if (F.mode === 'ground') { toast('Too dangerous to sleep on the ground! Find a tree or your nest.', 'bad'); return; }
   if (F.mode !== 'perch') return;
-  if (F.rest > 96 && nightF < 0.5) { toast('You are fully rested. Sleep when your Rest bar is lower, or at night.'); return; }
+  if (F.rest > 96 && (SP.nocturnal ? nightF > 0.5 : nightF < 0.5)) { toast('You are fully rested. Sleep when your Rest bar is lower, or at night.'); return; }
   if (F.carry) eatCarry();
   F.mode = 'sleep'; TOD.scale = 36; stats().sleeps++;
   $('sleepScreen').hidden = false;
@@ -1720,12 +2044,12 @@ function wake(msg) {
 }
 function perchAt(type, silent = false, tree = null) {
   F.mode = 'perch'; F.perchType = type; F.tree = tree;
-  if (type === 'nest') F.pos.set(EX + 2.4, EY + 1.0, EZ + 0.6);
+  if (type === 'nest') F.pos.copy(NESTS[spId].perch);
   else F.pos.set(tree.x, tree.perchY, tree.z);
   F.speed = 0; F.pitch = 0; F.roll = 0; F.tuck = 1; F.flare = 0;
   if (!silent) {
     stats().landings++;
-    toast(type === 'nest' ? 'Home at the eyrie. Safe from danger.' : 'Perched in a tree. Hidden from danger.', 'gold');
+    toast(type === 'nest' ? 'Home at your nest. Safe from danger.' : 'Perched in a tree. Hidden from danger.', 'gold');
     whoosh(0.15, 600);
   }
   if (type === 'nest' && F.carry) feedChicks();
@@ -1756,10 +2080,12 @@ function checkCollisions() {
   // the nest
   if (F.noPerchT <= 0 && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 12 && F.pos.y < EY + 5 && F.pos.y > EY - 4 && kmh < 80) { perchAt('nest'); return true; }
   // trees: slow means perch and hide, fast means a painful crash
+  F.inWoods = false;
   for (const t of treesNear(F.pos.x, F.pos.z)) {
     const d = Math.hypot(F.pos.x - t.x, F.pos.z - t.z);
     if (d < t.r * 0.85 && F.pos.y < t.top && F.pos.y > t.base) {
       if (F.noPerchT > 0) continue;
+      if (SP.treeSafe && kmh >= 35 && kmh < 95) { F.inWoods = true; continue; }
       if (kmh < 60) { perchAt('tree', false, t); return true; }
       injure(Math.round(8 + (kmh - 60) * 0.3), 'Ouch! You flew into a tree. Slow below 60 km/h to land in one.');
       if (F.mode !== 'fly') return true;
@@ -1782,6 +2108,7 @@ function checkCollisions() {
   // ground and water
   const g = heightAt(F.pos.x, F.pos.z);
   if (F.pos.y < Math.max(g, 0) + 0.6) {
+    if (g < 0.15 && spId === 'osprey' && F.pitch < -0.25) { ospreyPlunge(kmh); return false; }
     if (g < 0.15) {
       F.pos.y = 1.4; F.pitch = 0.45; F.speed = Math.max(F.speed * 0.5, 11); F.energy = Math.max(0, F.energy - 10);
       burst(F.pos, tA.set(0, 6, 0), [0xcfe8f5, 0xffffff, 0x9fd0ec], 18, 0); sfx.splash();
@@ -1798,6 +2125,16 @@ function checkCollisions() {
   return false;
 }
 
+// an osprey hits the water feet-first and grabs any fish close by
+function ospreyPlunge(kmh) {
+  burst(F.pos, tA.set(0, 7, 0), [0xcfe8f5, 0xffffff, 0x9fd0ec], 26, 0); sfx.splash();
+  const fish = F.carry ? null : prey.find(p => (p.type === 'fish' || p.type === 'eel') && p.state === 'active' && Math.hypot(p.pos.x - F.pos.x, p.pos.z - F.pos.z) < 5);
+  if (fish) { if (rand() < 0.85 * (SP.diet[fish.type] ?? 1)) catchPrey(fish); else { hideCritter(fish, 6, false); stats().misses++; toast('Splash! The fish got away.', 'bad'); } }
+  else toast('Splash! No fish there. Hover over a fish shadow first.', 'bad');
+  F.pos.y = 1.4; F.pitch = 0.5; F.speed = 9; F.energy = Math.max(0, F.energy - 6); F.tuck = 0;
+  if (kmh > 200) injure(12, 'You hit the water too hard!');
+}
+
 // ---------- the falcon each frame ----------
 const fwdOf = (yaw, pitch, out) => out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
 let target = null;
@@ -1809,7 +2146,7 @@ function updateFlight(dt, inp) {
   F.tuck = damp(F.tuck, inp.tuck ? 1 : 0, 6, dt);
   const wobble = injured ? Math.sin(game.t * 2.3) * 0.1 : 0;
   F.roll = damp(F.roll, inp.x * (0.95 - F.tuck * 0.35) * (injured ? 0.8 : 1) + wobble, 4, dt);
-  F.yaw -= Math.sin(F.roll) * 1.95 * (1 - F.tuck * 0.45) * dt;
+  F.yaw -= Math.sin(F.roll) * SP.turn * (1 - F.tuck * 0.45) * dt;
   F.pitch += inp.y * (1.1 + F.speed / 90) * dt;
   if (F.tuck > 0.4 && inp.y <= 0) F.pitch = damp(F.pitch, -1.25, 1.4 * F.tuck, dt);
   if (settings.autoLevel && Math.abs(inp.y) < 0.1 && F.tuck < 0.3) F.pitch = damp(F.pitch, -0.05, 0.45, dt);
@@ -1825,14 +2162,15 @@ function updateFlight(dt, inp) {
 
   const sp = Math.sin(F.pitch), agl = F.pos.y - surfaceAt(F.pos.x, F.pos.z);
   F.flare = damp(F.flare, inp.y > 0.3 && agl < 25 && F.tuck < 0.3 && F.speed < 30 ? 1 : 0, 5, dt);
-  const openDrag = 0.0016 + 0.004 * Math.max(0, -sp) + F.flare * 0.008;
-  const drag = lerp(openDrag, has('arrow') ? 0.00078 : 0.00098, F.tuck);
+  const openDrag = SP.drag + 0.004 * Math.max(0, -sp) + F.flare * 0.008;
+  const drag = lerp(openDrag, has('arrow') ? SP.arrowDrag : SP.tuckDrag, F.tuck);
   let acc = -9.8 * sp - drag * F.speed * F.speed;
   const flapping = inp.flap && canFlap && F.tuck < 0.5;
   if (inp.flapPressed && !canFlap) toast('Too tired to flap! Glide down, land and rest, or eat.', 'bad');
   const power = (has('wings') ? 1.3 : 1) * (injured ? 0.6 : 1);
   let lift = F.flare * 1.5;
-  if (flapping) { acc += 1.5 * power; lift += 2.6 * power; F.energy -= 13 * dt; }
+  if (flapping) { acc += SP.thrust * power; lift += SP.lift * power; F.energy -= SP.flapCost * dt; }
+  useSkill(dt, inp);
   if (F.carry) acc -= 0.5;
   // No stalling: a slow glide without flapping just drifts gently downward. Flapping holds you up.
   F.takeoffT = Math.max(0, (F.takeoffT || 0) - dt);
@@ -1840,19 +2178,23 @@ function updateFlight(dt, inp) {
   F.inThermal = false;
   for (const t of THERMALS) {
     const lean = thermalLean(t, F.pos.y);
-    if (Math.hypot(F.pos.x - lean.x, F.pos.z - lean.z) < t.r && F.pos.y < t.top) { F.inThermal = true; lift += t.lift * (1 - F.tuck); }
+    if (Math.hypot(F.pos.x - lean.x, F.pos.z - lean.z) < t.r && F.pos.y < t.top) { F.inThermal = true; lift += t.lift * SP.thermal * (1 - F.tuck); }
   }
   F.thin = F.pos.y > THIN_AIR;
   if (F.thin) F.energy -= 7 * dt;
   F.energy = clamp(F.energy, 0, energyCap());
   if (F.energy <= 0 && !F.exhausted) { F.exhausted = true; toast('Out of energy! You can only glide now. Land to rest, or eat your prey.', 'bad', 4500); }
-  F.speed = clamp(F.speed + acc * dt, 7, injured ? 75 : 115);
+  if (F.hovering) {
+    // hovering: wings beat hard, you hang in one spot facing the wind and can look straight down
+    F.speed = damp(F.speed, 0.5, 3, dt); F.pitch = damp(F.pitch, 0, 3, dt); F.roll = damp(F.roll, 0, 3, dt);
+    lift = 0; F.sink = 0;
+  } else F.speed = clamp(F.speed + acc * dt, 7, injured ? Math.min(75, SP.maxSpeed) : SP.maxSpeed);
 
   fwdOf(F.yaw, F.pitch, F.fwd);
   F.pos.addScaledVector(F.fwd, F.speed * dt);
   F.pos.y += (lift - F.sink) * dt;
   // the air itself moves you: wind changes speed and direction with height
-  windAt(F.pos.y, F.wind); F.pos.addScaledVector(F.wind, dt);
+  windAt(F.pos.y, F.wind); F.pos.addScaledVector(F.wind, F.hovering ? 0.15 * dt : dt);
 
   tryCatch();
   if (checkCollisions()) return;
@@ -1866,6 +2208,7 @@ function updateFlight(dt, inp) {
   const kmh = F.speed * 3.6;
   if (kmh > stats().topSpeed) stats().topSpeed = kmh;
   if (F.inThermal) stats().thermalTime += dt;
+  if (F.inWoods && kmh > 50) stats().woodsTime += dt;
   F.flapping = flapping;
   if (F.carry && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 20 && Math.abs(F.pos.y - EY) < 30) feedChicks();
 }
@@ -1885,13 +2228,33 @@ function updateGround(dt, inp) {
   if (F.mode === 'ground' && nearNest() && F.stunT <= 0) { perchAt('nest', true); toast('You hop into your nest.', 'gold'); return; }
   if (F.mode === 'ground') F.pos.y = surfaceAt(F.pos.x, F.pos.z) + LEG + (F.moving ? Math.abs(Math.sin(game.t * 9)) * 0.06 : 0);
 }
+// each bird's special skill
+function useSkill(dt, inp) {
+  F.scanT = Math.max(0, (F.scanT || 0) - dt); F.skillCool = Math.max(0, (F.skillCool || 0) - dt);
+  const ab = SP.ability, flying = F.mode === 'fly';
+  F.listening = ab === 'listen' && inp.skill && F.mode !== 'sleep';
+  if (F.listening) stats().listenTime += dt;
+  const wasHover = F.hovering;
+  F.hovering = ab === 'hover' && inp.skill && flying && !F.exhausted && F.energy > 0 && F.tuck < 0.3;
+  if (F.hovering) { F.energy -= 9 * dt; stats().hoverTime += dt; }
+  if (wasHover && !F.hovering && flying) F.speed = Math.max(F.speed, 8);
+  if (!inp.skillPressed) return;
+  if (ab === 'sight' || ab === 'scan') {
+    if (F.skillCool > 0) { toast(`Wait ${Math.ceil(F.skillCool)}s before using ${ABILITY[ab].name.toLowerCase()} again.`); return; }
+    F.scanT = 12; F.skillCool = 20; stats().scans++;
+    toast(ab === 'sight' ? 'Keen sight! Hares show up from far away.' : 'Scanning the fields for food…', 'gold');
+  } else if (ab === 'burst' && flying) {
+    if (F.skillCool > 0 || F.energy < 15 || F.exhausted) { toast('Too tired for a burst right now.', 'bad'); return; }
+    F.speed += 14; F.energy -= 15; F.skillCool = 5; stats().bursts++; whoosh(0.3, 1000);
+  }
+}
 const nearNest = () => Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 18;
 function updatePerch(dt, inp) {
   F.yaw -= inp.x * 1.8 * dt;
   if (inp.flapPressed) takeOff();
 }
 function updateSleep() {
-  if (F.rest >= 100 && nightF < 0.3) wake('Good morning! You slept well.');
+  if (F.rest >= 100 && (SP.nocturnal ? nightF > 0.7 : nightF < 0.3)) wake(SP.nocturnal ? 'Good evening! Time to hunt.' : 'Good morning! You slept well.');
   else if (F.food <= 5) wake('Your hunger woke you up.');
   else if (F.water <= 5) wake('Your thirst woke you up.');
 }
@@ -1900,7 +2263,7 @@ function updateNeeds(dt) {
   F.food = Math.max(0, F.food - dh * (sleeping ? 2 : 4));
   F.water = Math.max(0, F.water - dh * (sleeping ? 3 : 6.5));
   if (sleeping) F.rest = Math.min(100, F.rest + dh * 22);
-  else F.rest = Math.max(0, F.rest - dh * (nightF > 0.5 ? 7 : 4.5));
+  else F.rest = Math.max(0, F.rest - dh * ((nightF > 0.5) !== !!SP.nocturnal ? 7 : 4.5));
   let heal = sleeping ? 30 : resting ? (F.moving ? 8 : 16) : 2;
   if (F.food < 20 || F.water < 20) heal *= 0.3;
   const hurt = (F.food <= 0 ? 8 : 0) + (F.water <= 0 ? 12 : 0);
@@ -1928,7 +2291,8 @@ function poseFalcon(dt, inp) {
     g.rotation.set(-F.pitch, F.yaw, F.roll);
     if (F.flapping) F.flapPh += dt * 13;
     const glideFlex = Math.sin(game.t * 1.7) * 0.04;
-    animWings(b, { ph: F.flapPh, amp: F.flapping ? 0.9 : 0, tuck: F.tuck, dihedral: F.flapping ? 0 : 0.06 + glideFlex, flare: F.flare });
+    if (F.hovering) { F.flapPh += dt * 16; animWings(b, { ph: F.flapPh, amp: 0.8, flare: 0.5 }); }
+    else animWings(b, { ph: F.flapPh, amp: F.flapping ? 0.9 : 0, tuck: F.tuck, dihedral: F.flapping ? 0 : 0.06 + glideFlex, flare: F.flare });
     b.legs.visible = !!F.carry || (agl < 14 && F.speed < 22) || F.flare > 0.3;
     b.legs.rotation.x = F.carry ? 0.2 : -0.9 * F.flare;
     b.tail.scale.x = 1 + Math.max(F.flare, Math.abs(F.roll) * 0.6, F.speed < 14 ? 0.5 : 0) * 0.9 - F.tuck * 0.35;
@@ -1993,14 +2357,14 @@ function updateCamera(dt) {
   } else {
     falcon.group.visible = true;
     if (flying) {
-      const back = game.state === 'menu' ? 9 : 6 + F.tuck * 1.5;
+      const back = game.state === 'menu' ? 9 : (6 + F.tuck * 1.5) * Math.max(1, SIZE);
       camTarget.copy(F.pos).addScaledVector(F.fwd, -back); camTarget.y += game.state === 'menu' ? 3 : 2.1;
       if (game.state === 'menu') camTarget.addScaledVector(tA.set(F.fwd.z, 0, -F.fwd.x), 5);
       camLook.copy(F.pos).addScaledVector(F.fwd, 8);
     } else {
       const orbit = F.mode === 'sleep' ? game.t * 0.15 : 0;
       const a = F.yaw + Math.PI + orbit;
-      const dist = F.mode === 'ground' ? 3.6 : 4.4;
+      const dist = (F.mode === 'ground' ? 3.6 : 4.4) * Math.max(1, SIZE);
       camTarget.set(F.pos.x + Math.sin(a) * dist, F.pos.y + (F.mode === 'ground' ? 1.5 : 2.3), F.pos.z + Math.cos(a) * dist);
       camLook.set(F.pos.x + Math.sin(F.yaw) * 1.5, F.pos.y + 0.3, F.pos.z + Math.cos(F.yaw) * 1.5);
     }
@@ -2041,9 +2405,12 @@ function drawMini() {
   mctx.setLineDash([2, 2]); mctx.strokeStyle = 'rgba(255,234,176,.9)';
   for (const t of THERMALS) { const [x, y] = toMap(t.x, t.z); mctx.beginPath(); mctx.arc(x, y, 4, 0, 7); mctx.stroke(); }
   mctx.setLineDash([]);
-  const dotCol = { pigeon: '#ffffff', teal: '#5fe0b0', crow: '#1b1b1b', eel: '#c9b98a' };
+  const dotCol = { pigeon: '#ffffff', teal: '#5fe0b0', crow: '#1b1b1b', eel: '#c9b98a', finch: '#f0a088', hare: '#c08a50', fish: '#9fd0ec', carrion: '#d04030', shrew: '#e8d0a0' };
   for (const p of prey) {
     if (!(catchable(p) || p.state === 'swim') || !dotCol[p.type]) continue;
+    const diet = SP.diet[p.type] ?? 1;
+    if (p.type === 'shrew' && !F.listening) continue;
+    if ((PREY[p.type].critter || p.type === 'finch') && diet < 1 && F.scanT <= 0) continue;
     const [x, y] = toMap(p.pos.x, p.pos.z); mctx.fillStyle = dotCol[p.type]; mctx.fillRect(x - 1.5, y - 1.5, 3, 3);
   }
   mctx.fillStyle = '#ef6a55';
@@ -2091,6 +2458,10 @@ function updateHUD() {
   if (flying && F.tuck > 0.5) tags.push(['STOOP', 'gold']);
   if (flying && F.thin) tags.push(['THIN AIR', 'bad']);
   if (F.inThermal && flying) tags.push(['THERMAL', 'good']);
+  if (F.hovering) tags.push(['HOVERING', 'gold']);
+  if (F.listening) tags.push(['LISTENING', 'gold']);
+  if (F.scanT > 0) tags.push([SP.ability === 'sight' ? 'KEEN SIGHT' : 'SCANNING', 'gold']);
+  if (F.inWoods) tags.push(['WEAVING THROUGH TREES', 'good']);
   if (F.exhausted) tags.push(['EXHAUSTED', 'bad']);
   if (F.health < 40) tags.push(['INJURED', 'bad']);
   if (F.stunT > 0) tags.push(['STUNNED', 'bad']);
@@ -2128,13 +2499,18 @@ function updateHUD() {
   }
 
   // prey marker with strike odds when close
-  const range = (has('keen') ? 450 : 250) * (1 - nightF * 0.5);
+  const range = (has('keen') ? 450 : 250) * (SP.nocturnal ? 1 + nightF * 0.2 : 1 - nightF * 0.5);
   target = null; let best = Infinity;
   if (!F.carry && flying) for (const p of prey) {
-    if (!catchable(p) && p.state !== 'swim') continue;
-    tA.subVectors(p.pos, F.pos); const d = tA.length(); if (d > (PREY[p.type].range || range)) continue;
-    const dot = tA.dot(F.fwd) / d; if (dot < 0.35) continue;
-    const score = d * (1.6 - dot); if (score < best) { best = score; target = p; }
+    const heard = F.listening && p.type === 'shrew' && p.state === 'hidden';
+    if (!catchable(p) && p.state !== 'swim' && !heard) continue;
+    const diet = SP.diet[p.type] ?? 1;
+    if (F.scanT > 0 && diet < 1) continue;
+    if (F.listening && p.type !== 'shrew') continue;
+    tA.subVectors(p.pos, F.pos); const d = tA.length();
+    if (d > (PREY[p.type].range || range) * (F.scanT > 0 ? 3 : 1) * (F.listening ? 0.8 : 1)) continue;
+    const dot = tA.dot(F.fwd) / d; if (dot < (F.scanT > 0 || F.listening ? -1 : 0.35)) continue;
+    const score = d * (1.6 - dot) / Math.max(diet, 0.15); if (score < best) { best = score; target = p; }
   }
   const mk = $('mkPrey');
   mk.hidden = !target;
@@ -2142,14 +2518,15 @@ function updateHUD() {
     placeMarker(mk, target.pos);
     const d = Math.round(target.pos.distanceTo(F.pos));
     let label = `${PREY[target.type].name} · ${d} m`;
-    if (target.state === 'swim') label = `${PREY[target.type].name} · on the water · ${d} m`;
+    if (target.state === 'hidden') label = `${PREY[target.type].name} · rustling in the grass · ${d} m`;
+    else if (target.state === 'swim') label = `${PREY[target.type].name} · on the water · ${d} m`;
     else if (d < 70) label += ` · ${Math.round(strikeOdds(target).chance * 100)}% strike`;
     if (target.dodgeT > 0) label = `${PREY[target.type].name} · escaping`;
     mk.firstChild.textContent = label;
     mk.classList.toggle('close', d < 70);
   }
   const nk = $('mkNest'); nk.hidden = !F.carry && !(F.rest < 30 || nightF > 0.5) || atNest();
-  if (!nk.hidden) { placeMarker(nk, tB.set(EX, EY + 4, EZ)); nk.firstChild.textContent = 'Eyrie · ' + Math.round(F.pos.distanceTo(EYRIE)) + ' m'; }
+  if (!nk.hidden) { placeMarker(nk, tB.set(EX, EY + 4, EZ)); nk.firstChild.textContent = 'Nest · ' + Math.round(F.pos.distanceTo(EYRIE)) + ' m'; }
   const tk = $('mkTherm'); const showT = flying && (prog.mission === 0 || (F.energy < 30 && !F.exhausted));
   tk.hidden = !showT || F.inThermal;
   if (!tk.hidden) {
@@ -2181,7 +2558,7 @@ function updateChicks(dt) {
 // ---------- saving and loading ----------
 function snapshot() {
   return {
-    v: 2, savedAt: Date.now(), xp: prog.xp, mission: prog.mission, stats: { ...prog.stats }, done: prog.done, facts: [...seenFacts],
+    v: 2, savedAt: Date.now(), species: spId, xp: prog.xp, mission: prog.mission, stats: { ...prog.stats }, done: prog.done, facts: [...seenFacts],
     hour: TOD.hour, day: TOD.day,
     bird: { x: F.pos.x, y: F.pos.y, z: F.pos.z, yaw: F.yaw, mode: F.mode === 'sleep' ? 'perch' : F.mode, perchType: F.perchType,
       tree: F.tree ? TREES.indexOf(F.tree) : -1, health: F.health, energy: F.energy, food: F.food, water: F.water, rest: F.rest },
@@ -2190,13 +2567,15 @@ function snapshot() {
 function applySnapshot(s) {
   if (!s || s.v !== 2) return false;
   if (F.carry) dropCarry();
+  setSpecies(s.species || 'peregrine');
   prog = { xp: s.xp || 0, mission: s.mission || 0, stats: { ...blankStats(), ...(s.stats || {}) }, done: !!s.done };
   seenFacts.clear(); (s.facts || []).forEach(k => seenFacts.add(k));
   game.prevLevel = levelIdx();
   TOD.hour = s.hour ?? 7; TOD.day = s.day ?? 1; TOD.scale = 1;
   const b = s.bird || {};
   Object.assign(F, { health: b.health ?? 100, energy: b.energy ?? 100, food: b.food ?? 75, water: b.water ?? 75, rest: b.rest ?? 85,
-    exhausted: false, stunT: 0, tuck: 0, flare: 0, roll: 0, pitch: 0, yaw: b.yaw ?? Math.PI / 2, drinkT: 0 });
+    exhausted: false, stunT: 0, tuck: 0, flare: 0, roll: 0, pitch: 0, yaw: b.yaw ?? Math.PI / 2, drinkT: 0,
+    scanT: 0, skillCool: 0, hovering: false, listening: false, inWoods: false, sink: 0 });
   if (b.mode === 'perch' && b.perchType === 'tree' && TREES[b.tree]) perchAt('tree', true, TREES[b.tree]);
   else if (b.mode === 'ground') { F.pos.set(b.x, 0, b.z); landGround(false); stats().landings--; }
   else if (b.mode === 'fly') { F.mode = 'fly'; F.pos.set(b.x, b.y, b.z); F.speed = 20; }
@@ -2210,8 +2589,8 @@ function applySnapshot(s) {
   return true;
 }
 function persist() { if (game.state === 'play') store.set(AUTO_KEY, snapshot()); }
-function newGameState() {
-  applySnapshot({ v: 2, xp: 0, mission: 0, stats: blankStats(), hour: 7, day: 1, bird: { mode: 'perch', perchType: 'nest', yaw: Math.PI / 2, health: 100, energy: 100, food: 75, water: 75, rest: 85 } });
+function newGameState(species) {
+  applySnapshot({ v: 2, species, xp: 0, mission: 0, stats: blankStats(), hour: SPECIES[species].start, day: 1, bird: { mode: 'perch', perchType: 'nest', yaw: Math.PI / 2, health: 100, energy: 100, food: 75, water: 75, rest: 85 } });
 }
 const encodeSave = s => 'TALON2:' + btoa(unescape(encodeURIComponent(JSON.stringify(s))));
 function decodeSave(code) {
@@ -2220,7 +2599,8 @@ function decodeSave(code) {
 function describeSave(s) {
   let l = 0; LEVELS.forEach((L, i) => { if ((s.xp || 0) >= L.xp) l = i; });
   const when = new Date(s.savedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  return { title: `Level ${l + 1} ${LEVELS[l].name} · Day ${s.day} ${fmtTime(s.hour)}`, sub: `Quest ${Math.min((s.mission || 0) + 1, MISSIONS.length)} of ${MISSIONS.length} · saved ${when}` };
+  const sp = SPECIES[s.species] ? s.species : 'peregrine', n = MISSION_SETS[sp].length;
+  return { title: `${SPECIES[sp].name} · Level ${l + 1} · Day ${s.day} ${fmtTime(s.hour)}`, sub: `Quest ${Math.min((s.mission || 0) + 1, n)} of ${n} · saved ${when}` };
 }
 function renderSlots(el, inPause) {
   el.innerHTML = [1, 2, 3].map(n => {
@@ -2269,30 +2649,34 @@ $('menuCodeBtn').addEventListener('click', () => loadCode($('menuCode'), false))
 
 // ---------- menus ----------
 const BIRDS = [
-  { id: 'peregrine', name: 'Peregrine Falcon', hab: 'Sea cliffs, crags and cathedrals', blurb: 'The fastest animal alive. Climb high, fold your wings and stoop onto birds in mid-air.', s: [5, 3, 2], ok: true },
-  { id: 'eagle', name: 'Golden Eagle', hab: 'Scottish Highlands', blurb: 'Huge and powerful. Soar the glens on 2 m wings and hunt mountain hares.', s: [3, 5, 2] },
-  { id: 'owl', name: 'Barn Owl', hab: 'Farmland at dusk', blurb: 'Silent flight and super hearing. Find voles in the dark by sound alone.', s: [2, 2, 5] },
-  { id: 'osprey', name: 'Osprey', hab: 'Lochs and rivers', blurb: 'The fish hawk. Hover, then plunge feet-first into the water.', s: [3, 4, 2] },
-  { id: 'kite', name: 'Red Kite', hab: 'Chiltern hills', blurb: 'A forked-tail glider that rules the sky by patience and cunning.', s: [3, 2, 3] },
-  { id: 'sparrowhawk', name: 'Sparrowhawk', hab: 'Woods and gardens', blurb: 'An ambush expert that weaves between trees at full speed.', s: [4, 2, 4] },
+  { id: 'peregrine', name: 'Peregrine Falcon', hab: 'Home: an eyrie on the western cliffs', blurb: 'The fastest animal alive. Climb high, fold your wings and stoop onto birds in mid-air.', skill: 'Stoop (Shift / DIVE)', s: [5, 3, 2] },
+  { id: 'eagle', name: 'Golden Eagle', hab: 'Home: a crag high in the mountains', blurb: 'Huge and powerful. Soar on thermals and hunt mountain hares on the moors.', skill: 'Keen sight: spot hares from far away', s: [3, 5, 2] },
+  { id: 'owl', name: 'Barn Owl', hab: 'Home: an old barn in the fields', blurb: 'Hunts at night. Silent wings, and ears so good it can find shrews hidden in the grass.', skill: 'Listen: hear hidden prey', s: [2, 2, 5] },
+  { id: 'osprey', name: 'Osprey', hab: 'Home: a dead tree by the river', blurb: 'The fish hawk. Hover over the river, then plunge feet-first to grab a trout.', skill: 'Hover: hang in one spot', s: [3, 4, 2] },
+  { id: 'kite', name: 'Red Kite', hab: 'Home: a big oak in the woods', blurb: 'The best glider in the valley. A scavenger that sails for ages, looking for an easy meal.', skill: 'Scan: find food to scavenge', s: [3, 2, 3] },
+  { id: 'hawk', name: 'Sparrowhawk', hab: 'Home: a pine in the woods', blurb: 'An ambush expert. Weaves between trees at speed to surprise small birds.', skill: 'Burst: a sudden sprint', s: [4, 2, 4] },
 ];
+let chosen = 'peregrine';
 const pips = n => '<span class="pips">' + [1, 2, 3, 4, 5].map(i => `<i class="${i <= n ? 'f' : ''}"></i>`).join('') + '</span>';
-$('cards').innerHTML = BIRDS.map(b => `
-  <button class="card ${b.ok ? 'sel' : 'locked'}" ${b.ok ? '' : 'aria-disabled="true"'} data-id="${b.id}">
-    <span class="lock">${b.ok ? 'Playable' : 'Coming soon'}</span>
-    <h3>${b.name}</h3><p class="hab">${b.hab}</p><p class="blurb">${b.blurb}</p>
+function renderCards() {
+  $('cards').innerHTML = BIRDS.map(b => `
+  <button class="card ${b.id === chosen ? 'sel' : ''}" data-id="${b.id}" aria-pressed="${b.id === chosen}">
+    <span class="lock">${b.id === chosen ? 'Selected' : 'Tap to choose'}</span>
+    <h3>${b.name}</h3><p class="hab">${b.hab}</p><p class="blurb">${b.blurb}</p><p class="hab">Skill: ${b.skill}</p>
     <span class="stats"><span>Speed</span>${pips(b.s[0])}<span>Power</span>${pips(b.s[1])}<span>Stealth</span>${pips(b.s[2])}</span>
   </button>`).join('');
-$('cards').addEventListener('click', e => { const c = e.target.closest('.card'); if (c && c.classList.contains('locked')) toast(`${c.querySelector('h3').textContent} isn't ready yet`, '', 1800); });
+  $('newBtn').textContent = 'New game as ' + SPECIES[chosen].name; delete $('newBtn').dataset.armed;
+}
+$('cards').addEventListener('click', e => { const c = e.target.closest('.card'); if (!c) return; chosen = c.dataset.id; renderCards(); });
 const HOWTO = isTouch
-  ? [['Left thumb', 'Steer. Push up to climb, pull down to dive. Walk on the ground'], ['FLAP', 'Flap (uses energy), or take off'], ['DIVE', 'Fold your wings and stoop'], ['ACT', 'Eat, drink, sleep, or pounce on a shrew'], ['VIEW', 'Switch camera'], ['Landing', 'Below 60 km/h, push up to flare, then touch down']]
-  : [['A D', 'Turn left and right'], ['W S', 'Climb (nose up) and dive (nose down)'], ['Space', 'Flap (uses energy), or take off'], ['Shift', 'Fold your wings and stoop'], ['E', 'Eat, drink, sleep, or pounce on a shrew'], ['Z', 'Sleep when perched'], ['V', 'Switch camera'], ['Esc', 'Pause, save and load'], ['Landing', 'Below 60 km/h, hold W to flare, then touch down']];
+  ? [['SKILL', 'Use your bird\'s special skill'], ['Left thumb', 'Steer. Push up to climb, pull down to dive. Walk on the ground'], ['FLAP', 'Flap (uses energy), or take off'], ['DIVE', 'Fold your wings and stoop'], ['ACT', 'Eat, drink, sleep, or pounce on a shrew'], ['VIEW', 'Switch camera'], ['Landing', 'Below 60 km/h, push up to flare, then touch down']]
+  : [['Q', 'Use your bird\'s special skill'], ['A D', 'Turn left and right'], ['W S', 'Climb (nose up) and dive (nose down)'], ['Space', 'Flap (uses energy), or take off'], ['Shift', 'Fold your wings and stoop'], ['E', 'Eat, drink, sleep, or pounce on a shrew'], ['Z', 'Sleep when perched'], ['V', 'Switch camera'], ['Esc', 'Pause, save and load'], ['Landing', 'Below 60 km/h, hold W to flare, then touch down']];
 const howtoHTML = HOWTO.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('') + (isTouch ? '' : '<div><kbd>Gamepad</kbd><span>Supported too</span></div>');
 $('howto').innerHTML = howtoHTML; $('howto2').innerHTML = howtoHTML;
 
 function renderPause() {
   const s = stats();
-  $('statgrid').innerHTML = [['Level', `${levelIdx() + 1} · ${LEVELS[levelIdx()].name}`], ['XP', prog.xp], ['Wood pigeons', s.pigeon], ['Teal', s.teal], ['Crows', s.crow], ['Shrews', s.shrew], ['Eels', s.eel], ['Missed strikes', s.misses], ['Stoop strikes', s.stoops], ['Chicks fed', s.fed], ['Top speed', Math.round(s.topSpeed) + ' km/h']]
+  $('statgrid').innerHTML = [['Level', `${levelIdx() + 1} · ${LEVELS[levelIdx()].name}`], ['XP', prog.xp], ['Wood pigeons', s.pigeon], ['Teal', s.teal], ['Crows', s.crow], ['Chaffinches', s.finch], ['Shrews', s.shrew], ['Hares', s.hare], ['Trout', s.fish], ['Eels', s.eel], ['Carrion', s.carrion], ['Missed strikes', s.misses], ['Stoop strikes', s.stoops], ['Chicks fed', s.fed], ['Top speed', Math.round(s.topSpeed) + ' km/h']]
     .map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
   $('skills').innerHTML = LEVELS.filter(L => L.skill).map(L => {
     const got = has(L.skill), S = SKILLS[L.skill];
@@ -2318,8 +2702,9 @@ function startPlay() {
 function renderMenu() {
   const auto = store.get(AUTO_KEY);
   $('continueBtn').hidden = !auto || auto.v !== 2;
+  if (auto) $('continueBtn').textContent = 'Continue as ' + (SPECIES[auto.species] || SPECIES.peregrine).name;
   $('newBtn').className = auto ? 'ghost' : 'cta';
-  $('newBtn').textContent = 'New game'; delete $('newBtn').dataset.armed;
+  renderCards();
   renderSlots($('menuSlots'), false);
 }
 function toMenu() {
@@ -2333,8 +2718,16 @@ $('continueBtn').addEventListener('click', () => { if (applySnapshot(store.get(A
 $('newBtn').addEventListener('click', e => {
   const b = e.currentTarget;
   if (store.get(AUTO_KEY) && !b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again: this replaces your autosave'; return; }
-  newGameState(); startPlay();
-  setTimeout(() => toast(`You are a young peregrine at your nest. Press ${KEY.fly} to take off!`, 'gold', 5000), 400);
+  newGameState(chosen); startPlay();
+  const intro = {
+    peregrine: `You are a young peregrine at your nest. Press ${KEY.fly} to take off!`,
+    eagle: `You are a young golden eagle on your mountain crag. Press ${KEY.fly} to take off!`,
+    owl: `You are a barn owl in your barn. Night is coming: time to hunt. Hold ${KEY.skill} to listen.`,
+    osprey: `You are an osprey on your nest by the river. Hold ${KEY.skill} to hover over fish.`,
+    kite: `You are a red kite in your oak. Ride the thermals and press ${KEY.skill} to scan for food.`,
+    hawk: `You are a sparrowhawk in the pines. Weave through the trees and press ${KEY.skill} to burst.`,
+  };
+  setTimeout(() => toast(intro[chosen], 'gold', 5500), 400);
 });
 $('loadMenuBtn').addEventListener('click', () => { $('loadPanel').hidden = !$('loadPanel').hidden; renderSlots($('menuSlots'), false); });
 $('pauseBtn').addEventListener('click', () => togglePause());
@@ -2359,6 +2752,7 @@ function tick() {
   if (game.state === 'menu') updateMenuFlight(dt);
   else if (live) {
     const inp = readInput();
+    if (F.mode !== 'fly') useSkill(dt, inp);
     if (F.mode === 'fly') updateFlight(dt, inp);
     else if (F.mode === 'ground') updateGround(dt, inp);
     else if (F.mode === 'perch') updatePerch(dt, inp);
@@ -2384,10 +2778,11 @@ function tick() {
   updateAudio();
   renderer.render(scene, camera);
 }
+setSpecies('peregrine');
 updateTime(0);
 $('loading').remove();
 $('menu').hidden = false;
 renderMenu();
-window.__talon = { F, game, prey, TREES, foxes, eagle, TOD, wind: W, windAt, heightAt, EYRIE, camera, applySnapshot, snapshot, takeOff, perchAt, landGround, doAction, settings };
+window.__talon = { F, game, prey, setSpecies, NESTS, SPECIES, get spId() { return spId; }, TREES, foxes, eagle, TOD, wind: W, windAt, heightAt, EYRIE, camera, applySnapshot, snapshot, takeOff, perchAt, landGround, doAction, settings };
 tick();
 </script>
