@@ -1810,7 +1810,7 @@ function updateFlight(dt, inp) {
   const wobble = injured ? Math.sin(game.t * 2.3) * 0.1 : 0;
   F.roll = damp(F.roll, inp.x * (0.95 - F.tuck * 0.35) * (injured ? 0.8 : 1) + wobble, 4, dt);
   F.yaw -= Math.sin(F.roll) * 1.95 * (1 - F.tuck * 0.45) * dt;
-  F.pitch += inp.y * (1.1 + F.speed / 90) * (F.stall ? 0.35 : 1) * dt;
+  F.pitch += inp.y * (1.1 + F.speed / 90) * dt;
   if (F.tuck > 0.4 && inp.y <= 0) F.pitch = damp(F.pitch, -1.25, 1.4 * F.tuck, dt);
   if (settings.autoLevel && Math.abs(inp.y) < 0.1 && F.tuck < 0.3) F.pitch = damp(F.pitch, -0.05, 0.45, dt);
   // gentle aim assist toward the marked prey
@@ -1834,16 +1834,9 @@ function updateFlight(dt, inp) {
   let lift = F.flare * 1.5;
   if (flapping) { acc += 1.5 * power; lift += 2.6 * power; F.energy -= 13 * dt; }
   if (F.carry) acc -= 0.5;
-  // Lift falls away with the square of airspeed. Below stall speed the wings can't hold you up:
-  // you sink, the nose drops and a wing may dip. Flapping hard or diving to gain speed recovers.
+  // No stalling: a slow glide without flapping just drifts gently downward. Flapping holds you up.
   F.takeoffT = Math.max(0, (F.takeoffT || 0) - dt);
-  const VSTALL = 10;
-  const liftFrac = Math.min(1, (F.speed / VSTALL) ** 2) + (flapping ? 0.5 : 0) + (F.takeoffT > 0 ? 1 : 0) + F.tuck;
-  const deficit = clamp(1 - liftFrac, 0, 1);
-  F.sink = damp(F.sink || 0, deficit * 16, 2.2, dt);
-  F.stall = deficit > 0.12;
-  F.stallWarn = !F.stall && F.speed < 13.5 && !flapping && F.tuck < 0.3;
-  if (deficit > 0) { F.pitch -= deficit * 2.2 * dt; F.roll += Math.sin(game.t * 2.7) * deficit * 1.6 * dt; }
+  F.sink = damp(F.sink || 0, flapping || F.takeoffT > 0 ? 0 : clamp((12 - F.speed) * 0.25, 0, 1.5), 2, dt);
   F.inThermal = false;
   for (const t of THERMALS) {
     const lean = thermalLean(t, F.pos.y);
@@ -1853,7 +1846,7 @@ function updateFlight(dt, inp) {
   if (F.thin) F.energy -= 7 * dt;
   F.energy = clamp(F.energy, 0, energyCap());
   if (F.energy <= 0 && !F.exhausted) { F.exhausted = true; toast('Out of energy! You can only glide now. Land to rest, or eat your prey.', 'bad', 4500); }
-  F.speed = clamp(F.speed + acc * dt, 3, injured ? 75 : 115);
+  F.speed = clamp(F.speed + acc * dt, 7, injured ? 75 : 115);
 
   fwdOf(F.yaw, F.pitch, F.fwd);
   F.pos.addScaledVector(F.fwd, F.speed * dt);
@@ -1935,9 +1928,8 @@ function poseFalcon(dt, inp) {
     g.rotation.set(-F.pitch, F.yaw, F.roll);
     if (F.flapping) F.flapPh += dt * 13;
     const glideFlex = Math.sin(game.t * 1.7) * 0.04;
-    if (F.stall && !F.flapping) { F.flapPh += dt * 9; animWings(b, { ph: F.flapPh, amp: 0.3, dihedral: 0.5, tuck: F.tuck }); }
-    else animWings(b, { ph: F.flapPh, amp: F.flapping ? 0.9 : 0, tuck: F.tuck, dihedral: F.flapping ? 0 : 0.06 + glideFlex, flare: F.flare });
-    b.legs.visible = !!F.carry || (agl < 14 && F.speed < 22) || F.flare > 0.3 || F.stall;
+    animWings(b, { ph: F.flapPh, amp: F.flapping ? 0.9 : 0, tuck: F.tuck, dihedral: F.flapping ? 0 : 0.06 + glideFlex, flare: F.flare });
+    b.legs.visible = !!F.carry || (agl < 14 && F.speed < 22) || F.flare > 0.3;
     b.legs.rotation.x = F.carry ? 0.2 : -0.9 * F.flare;
     b.tail.scale.x = 1 + Math.max(F.flare, Math.abs(F.roll) * 0.6, F.speed < 14 ? 0.5 : 0) * 0.9 - F.tuck * 0.35;
     b.tail.rotation.z = -F.roll * 0.35; b.tail.rotation.x = -F.flare * 0.45 + inp.y * 0.12;
@@ -2098,8 +2090,6 @@ function updateHUD() {
   const tags = [];
   if (flying && F.tuck > 0.5) tags.push(['STOOP', 'gold']);
   if (flying && F.thin) tags.push(['THIN AIR', 'bad']);
-  if (flying && F.stall) tags.push(['STALL! DIVE OR FLAP TO RECOVER', 'bad']);
-  else if (flying && F.stallWarn) tags.push(['LOW SPEED', 'gold']);
   if (F.inThermal && flying) tags.push(['THERMAL', 'good']);
   if (F.exhausted) tags.push(['EXHAUSTED', 'bad']);
   if (F.health < 40) tags.push(['INJURED', 'bad']);
