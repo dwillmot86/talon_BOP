@@ -56,6 +56,9 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .g{display:grid;justify-items:center;line-height:1}
 .g b{font-size:34px;font-weight:900;font-variant-numeric:tabular-nums;min-width:2.6ch;text-align:center}
 .g.alt b{font-size:22px}
+.g.wind b{font-size:22px;display:flex;align-items:center;gap:7px}
+#windArrow{display:block;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:17px solid var(--sky);transition:transform .2s}
+body.touch .g.wind b{font-size:17px}
 .g small{font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:3px}
 #gauges.stoop{border-color:var(--gold);box-shadow:0 0 0 2px rgba(240,192,42,.35),0 0 30px rgba(240,192,42,.25)}
 #gauges.stoop .g:first-child b{color:var(--gold)}
@@ -234,6 +237,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
   <div id="gauges">
     <div class="g"><b id="spd">0</b><small>km/h</small></div>
     <div class="g alt"><b id="alt">0</b><small>metres up</small></div>
+    <div class="g wind" title="Wind: the arrow shows where it is blowing, compared with where you face"><b><i id="windArrow"></i><span id="windSpd">0</span></b><small>wind km/h</small></div>
   </div>
   <div id="tags"></div>
   <div id="prompt" hidden></div>

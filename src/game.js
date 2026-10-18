@@ -399,7 +399,11 @@ const LOOK = {
 const PREY = {
   pigeon: { name: 'Wood pigeon', xp: 40, speed: 15, flee: 23, alert: 45, feathers: [0x9aa2b0, 0xb8a2ae, 0xe9e9ee], food: 45 },
   teal: { name: 'Teal', xp: 90, speed: 20, flee: 30, alert: 60, feathers: [0x8d8f8a, 0xdcd2bf, 0x2c6e52], food: 55 },
+  crow: { name: 'Carrion crow', xp: 60, speed: 13, flee: 21, alert: 40, feathers: [0x1e2026, 0x30333a, 0x111214], food: 55 },
+  shrew: { name: 'Shrew', xp: 12, food: 22, feathers: [0x5e4632, 0xb8a58a], critter: true, range: 160 },
+  eel: { name: 'Eel', xp: 30, food: 35, feathers: [0x4b5a2c, 0xcfe8f5, 0xffffff], critter: true, range: 260 },
 };
+const catchable = p => p.state === 'fly' || p.state === 'active';
 
 // ---------- eyrie ----------
 const EZ = -180, EX = riverX(EZ) - CLIFF - 22, EY = heightAt(EX, EZ);
@@ -433,6 +437,23 @@ beacon.position.set(EX, EY + 170, EZ); beacon.visible = false; scene.add(beacon)
 const THERMALS = [
   [EX + 160, EZ + 90], [riverX(-520) + 260, -520], [riverX(330) + 360, 330], [riverX(680) - 170, 680], [riverX(-820) + 120, -820], [riverX(60) - 210, 60]
 ].map(([x, z]) => ({ x, z, r: 42, lift: 7, top: THIN_AIR - 10, base: groundAt(x, z) }));
+// ---------- wind ----------
+// Wind gets stronger with height and veers (turns) as you climb. Its strength and direction slowly change over time.
+const W = { dir: rand() * 6.283, strength: 4.5 };
+const wTmp = new V3();
+function windAt(y, out) {
+  const h = clamp(y / THIN_AIR, 0, 1.3);
+  const gust = 0.85 + 0.15 * Math.sin(game.t * 0.9 + y * 0.013) * Math.sin(game.t * 0.37);
+  const speed = (1 + W.strength * (0.25 + h)) * gust;
+  const dir = W.dir + h * 1.3;
+  return out.set(Math.sin(dir) * speed, 0, Math.cos(dir) * speed);
+}
+function updateWind(dt) {
+  W.dir += Math.sin(game.t * 0.013) * 0.03 * dt;
+  W.strength = 4.5 + 2.5 * Math.sin(game.t * 0.006 + 1.7);
+}
+// thermals lean downwind as they rise
+function thermalLean(t, y) { windAt(y, wTmp); const k = Math.max(0, y - t.base) / 60; return { x: t.x + wTmp.x * k, z: t.z + wTmp.z * k }; }
 const MOTES = 140;
 const moteGeo = new THREE.BufferGeometry();
 const motePos = new Float32Array(THERMALS.length * MOTES * 3), moteData = [];
@@ -447,7 +468,8 @@ function updateThermals(dt) {
     m.y += m.s * dt; m.a += dt * 0.7;
     if (m.y > m.t.top) m.y = m.t.base + 2;
     const rr = m.r * (0.6 + 0.4 * (m.y - m.t.base) / (m.t.top - m.t.base));
-    motePos[i * 3] = m.t.x + Math.cos(m.a) * rr; motePos[i * 3 + 1] = m.y; motePos[i * 3 + 2] = m.t.z + Math.sin(m.a) * rr;
+    const c = thermalLean(m.t, m.y);
+    motePos[i * 3] = c.x + Math.cos(m.a) * rr; motePos[i * 3 + 1] = m.y; motePos[i * 3 + 2] = c.z + Math.sin(m.a) * rr;
   });
   moteGeo.attributes.position.needsUpdate = true;
 }
@@ -500,7 +522,7 @@ const store = {
 };
 const settings = { invert: false, muted: false, autoLevel: false, ...(store.get(SETTINGS_KEY) || {}) };
 const saveSettings = () => store.set(SETTINGS_KEY, settings);
-const blankStats = () => ({ pigeon: 0, teal: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
+const blankStats = () => ({ pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
 let prog = { xp: 0, mission: 0, stats: blankStats(), done: false };
 const stats = () => prog.stats;
 
@@ -529,7 +551,11 @@ const FACTS = {
   ddt: 'In the 1960s British peregrines nearly disappeared because of a pesticide called DDT. After it was banned they recovered, and today some even nest on cathedrals, like Salisbury and Norwich.',
   tiercel: 'Female peregrines are about a third bigger than males. A male is called a tiercel, from an old word meaning "a third".',
   eagle: 'Golden eagles are one of Britain\'s biggest birds of prey, with wings over 2 m across. They live mostly in the Scottish Highlands and will attack other raptors.',
-  crows: 'Crows "mob" birds of prey: they gang up, call loudly and dive at them to chase them away from their nests.',
+  crow: 'Crows often "mob" birds of prey, calling loudly and diving at them to chase them off, but they rarely hurt them. Peregrines do sometimes catch crows and jackdaws to eat.',
+  shrew: 'Peregrines mostly eat birds, but they will sometimes grab small mammals. Shrews have smelly glands that put off foxes and cats, but birds of prey have a poor sense of smell, so owls and hawks eat them happily.',
+  eel: 'In real life peregrines very rarely catch fish. Snatching eels and fish from the water is really the osprey\'s job: ospreys have spiky pads on their feet to grip slippery prey.',
+  teal: 'Teal are Britain\'s smallest ducks. When danger comes they spring straight up off the water, which is why a group of teal is called a "spring".',
+  wind: 'Wind usually gets stronger the higher you go, and it often changes direction with height too. Birds of prey use it: kestrels hover by facing into the wind.',
   fox: 'Foxes will happily eat a bird that lands on the ground. That is one reason birds of prey prefer to rest high up on cliffs and in trees.',
 };
 const MISSIONS = [
@@ -539,7 +565,7 @@ const MISSIONS = [
   { title: 'First catch', text: () => 'Catch a wood pigeon. Strike fast, from above or behind, or it may dodge you.', done: s => s.pigeon >= 1, fact: 'pigeon' },
   { title: 'Hungry mouths', text: () => 'Carry your catch to your eyrie on the western cliffs (gold beam).', done: s => s.fed >= 1, fact: 'chicks' },
   { title: 'Thirsty work', text: () => `Land on the river bank, walk to the water's edge and press ${KEY.act} to drink.`, done: s => s.drinks >= 1, fact: 'drink' },
-  { title: 'River hunter', text: () => 'Catch a teal, a quick little duck that skims low over the river.', done: s => s.teal >= 1, fact: 'talons' },
+  { title: 'River hunter', text: () => 'Teal rest on the river. Fly close to make them spring up, then catch one in the air.', done: s => s.teal >= 1, fact: 'talons' },
   { title: 'Safe roost', text: () => `Land in a tree or your nest and press ${KEY.sleep} to sleep.`, done: s => s.sleeps >= 1, fact: 'sleep' },
   { title: 'Living arrow', text: () => 'Make a Stoop Strike: catch prey while diving faster than 200 km/h.', done: s => s.stoops >= 1, fact: 'ddt' },
   { title: 'Lord of the Valley', text: () => 'Feed your chicks 5 times in total.', done: s => s.fed >= 5, fact: 'tiercel' },
@@ -554,7 +580,7 @@ const F = {
   pos: new V3(), prev: new V3(), fwd: new V3(0, 0, 1), yaw: 0, pitch: 0, roll: 0, speed: 22, tuck: 0, flare: 0, flapPh: 0,
   mode: 'perch', perchType: 'nest', tree: null, stunT: 0, moving: false, drinkT: 0, carry: null,
   health: 100, energy: 100, food: 75, water: 75, rest: 85, exhausted: false,
-  inThermal: false, thin: false, stall: false, hidden: false, flapSnd: 0, edgeWarned: false,
+  inThermal: false, thin: false, stall: false, hidden: false, flapSnd: 0, edgeWarned: false, wind: new V3(), sink: 0,
 };
 const maxEnergy = () => has('wings') ? 130 : 100;
 const energyCap = () => maxEnergy() * (F.rest < 10 ? 0.5 : 1) * (F.health < 35 ? 0.7 : 1);
@@ -574,15 +600,25 @@ function pickTarget(f) {
   }
 }
 function addFlock(type, home, radius, altMin, altMax, n) {
-  const f = { type, home, radius, altMin, altMax, target: new V3(), timer: 0, members: [] };
-  pickTarget(f);
+  const f = { type, home, radius, altMin, altMax, target: new V3(), timer: 0, members: [], swim: type === 'teal', landing: false };
+  if (f.swim) pickSwimSpot(f); else pickTarget(f);
   for (let i = 0; i < n; i++) {
     const b = makeBird(LOOK[type]);
     const p = { type, b, flock: f, pos: f.target.clone().add(new V3((rand() - .5) * 30, 0, (rand() - .5) * 30)), vel: new V3(rand() - .5, 0, rand() - .5).setLength(PREY[type].speed),
       offset: new V3((rand() - .5) * 16, (rand() - .5) * 6, (rand() - .5) * 16), phase: rand() * 6, state: 'fly', fleeT: 0, dodgeT: 0, respawn: 0, jink: 0, bank: 0, lastYaw: 0, glideT: 0 };
+    if (f.swim) { p.state = 'swim'; p.offset.set((rand() - .5) * 8, 0, (rand() - .5) * 24); p.pos.copy(f.target).add(p.offset); p.swimYaw = rand() * 6.28; }
     scene.add(b.group); f.members.push(p); prey.push(p);
   }
   flocks.push(f);
+}
+// a resting spot on the open water, away from the banks
+function pickSwimSpot(f) {
+  f.timer = 0;
+  for (let k = 0; k < 20; k++) {
+    const z = clamp(f.home.z + (rand() - .5) * 2 * f.radius, -950, 950), x = riverX(z) + (rand() - .5) * 16;
+    if (heightAt(x, z) < -2) { f.target.set(x, 0.08, z); return; }
+  }
+  f.target.set(riverX(f.home.z), 0.08, f.home.z);
 }
 addFlock('pigeon', new V3(VX, 0, VZ), 220, 25, 70, 5);
 addFlock('pigeon', new V3(VX + 40, 0, VZ - 300), 260, 30, 80, 5);
@@ -591,11 +627,13 @@ addFlock('pigeon', new V3(riverX(650) + 120, 0, 650), 260, 25, 80, 4);
 addFlock('pigeon', new V3(riverX(-50) - 180, 0, -50), 200, 40, 90, 4);
 addFlock('teal', new V3(0, 0, -300), 450, 5, 16, 4);
 addFlock('teal', new V3(0, 0, 450), 450, 5, 16, 4);
+addFlock('teal', new V3(0, 0, -780), 300, 5, 16, 4);
 
 function updatePrey(dt, playing) {
   const roosting = nightF > 0.6;
   for (const f of flocks) {
     f.timer += dt;
+    if (f.type === 'teal') { updateTealFlock(f, playing); continue; }
     const live = f.members.filter(p => p.state === 'fly');
     if (live.length) {
       tA.set(0, 0, 0); live.forEach(p => tA.add(p.pos)); tA.multiplyScalar(1 / live.length);
@@ -605,8 +643,10 @@ function updatePrey(dt, playing) {
   for (const p of prey) {
     if (p.state === 'dead') { p.respawn -= dt; if (p.respawn <= 0) respawnPrey(p); continue; }
     if (p.state === 'carried') continue;
-    // pigeons roost at night; ducks stay active
-    if (p.type === 'pigeon' && roosting && p.state === 'fly' && p.pos.distanceTo(F.pos) > 120) { p.state = 'roost'; p.b.group.visible = false; continue; }
+    if (PREY[p.type].critter) { updateCritter(p, dt, playing); continue; }
+    if (p.state === 'swim') { updateSwimmer(p, dt); continue; }
+    // pigeons and crows roost at night; ducks stay active
+    if (p.type !== 'teal' && roosting && p.state === 'fly' && p.pos.distanceTo(F.pos) > 120) { p.state = 'roost'; p.b.group.visible = false; continue; }
     if (p.state === 'roost') { if (!roosting) respawnPrey(p); continue; }
     const T = PREY[p.type];
     p.dodgeT = Math.max(0, p.dodgeT - dt);
@@ -623,7 +663,9 @@ function updatePrey(dt, playing) {
     }
     p.vel.lerp(tA, 1 - Math.exp(-dt * (p.fleeT > 0 ? 3 : 1.3)));
     const g = groundAt(p.pos.x, p.pos.z);
-    if (p.pos.y < g + 4) p.vel.y = Math.max(p.vel.y, (g + 4 - p.pos.y) * 3);
+    const landingOnWater = p.type === 'teal' && p.flock.landing;
+    if (!landingOnWater && p.pos.y < g + 4) p.vel.y = Math.max(p.vel.y, (g + 4 - p.pos.y) * 3);
+    if (landingOnWater && p.pos.distanceTo(tC.copy(p.flock.target).add(p.offset)) < 8) { p.state = 'swim'; p.swimYaw = Math.atan2(p.vel.x, p.vel.z); continue; }
     if (p.pos.y > 420) p.vel.y = Math.min(p.vel.y, 0);
     if (Math.hypot(p.pos.x, p.pos.z) > LIMIT) { tB.set(-p.pos.x, 0, -p.pos.z).setLength(6 * dt); p.vel.add(tB); }
     p.pos.addScaledVector(p.vel, dt);
@@ -636,6 +678,34 @@ function updatePrey(dt, playing) {
     animatePrey(p, dt);
   }
 }
+// Teal rest on the river, spring up together when you come close, then settle again further along.
+function updateTealFlock(f, playing) {
+  const members = f.members.filter(p => p.state === 'swim' || p.state === 'fly');
+  if (f.swim) {
+    const near = playing && F.mode === 'fly' && members.some(p => p.pos.distanceTo(F.pos) < 75);
+    if (near || (f.timer > 70 && nightF < 0.5)) {
+      f.swim = false; f.landing = false; f.timer = 0; pickTarget(f);
+      for (const p of members) { p.state = 'fly'; p.vel.set(rand() - .5, 0, rand() - .5).setLength(8); p.vel.y = 9; p.fleeT = near ? 2.5 : 0; }
+      if (near) { whoosh(0.25, 1200); showFactOnce('teal'); }
+    }
+  } else if (!f.landing) {
+    const live = members.filter(p => p.state === 'fly');
+    if (live.length) {
+      tA.set(0, 0, 0); live.forEach(p => tA.add(p.pos)); tA.multiplyScalar(1 / live.length);
+      if (tA.distanceTo(f.target) < 40) pickTarget(f);
+      if (f.timer > 30 && tA.distanceTo(F.pos) > 160) { f.landing = true; pickSwimSpot(f); f.timer = 0; }
+    }
+  } else if (members.length && members.every(p => p.state === 'swim')) { f.swim = true; f.landing = false; f.timer = 0; }
+}
+function updateSwimmer(p, dt) {
+  tA.copy(p.flock.target).add(p.offset); tA.y = 0;
+  p.pos.x = damp(p.pos.x, tA.x, 0.4, dt); p.pos.z = damp(p.pos.z, tA.z, 0.4, dt);
+  p.pos.y = 0.05 + Math.sin(game.t * 2 + p.phase) * 0.03;
+  p.swimYaw += Math.sin(game.t * 0.3 + p.phase) * dt * 0.4;
+  p.b.group.position.copy(p.pos); p.b.group.rotation.set(0, p.swimYaw, 0);
+  p.b.head.rotation.x = Math.sin(game.t * 0.8 + p.phase) > 0.85 ? 0.9 : 0;
+  animWings(p.b, { tuck: 1 });
+}
 function animatePrey(p, dt) {
   const fleeing = p.fleeT > 0;
   if (p.type === 'pigeon') {
@@ -645,6 +715,10 @@ function animatePrey(p, dt) {
     if (!fleeing && p.glideT > 0) { animWings(p.b, { dihedral: 0.35 }); return; }
     p.phase += dt * (fleeing ? 16 : 10);
     animWings(p.b, { ph: p.phase, amp: fleeing ? 1.0 : 0.85 });
+  } else if (p.type === 'crow') {
+    // crows row along with slow, deep, even beats
+    p.phase += dt * (fleeing ? 11 : 7.5);
+    animWings(p.b, { ph: p.phase, amp: 0.7 });
   } else {
     // ducks whirr with fast, shallow beats
     p.phase += dt * (fleeing ? 26 : 21);
@@ -652,12 +726,111 @@ function animatePrey(p, dt) {
   }
 }
 function respawnPrey(p) {
+  if (PREY[p.type].critter) { hideCritter(p, 15 + rand() * 15, true); if (p.b.group.parent !== scene) scene.add(p.b.group); p.b.group.scale.setScalar(p.b.scale); return; }
   const f = p.flock;
+  if (f.swim && p.type === 'teal') {
+    if (p.b.group.parent !== scene) scene.add(p.b.group);
+    p.b.group.scale.setScalar(p.b.scale); p.b.group.visible = true; p.b.legs.visible = false;
+    p.pos.copy(f.target).add(p.offset); p.state = 'swim'; p.fleeT = 0; p.dodgeT = 0; return;
+  }
   tA.copy(f.target).add(p.offset);
   if (tA.distanceTo(F.pos) < 220) { pickTarget(f); p.respawn = 4; p.state = p.state === 'roost' ? 'roost' : 'dead'; return; }
   if (p.b.group.parent !== scene) scene.add(p.b.group);
   p.b.group.scale.setScalar(p.b.scale); p.b.group.visible = true; p.b.legs.visible = false;
   p.pos.copy(tA); p.vel.set(rand() - .5, 0, rand() - .5).setLength(PREY[p.type].speed); p.state = 'fly'; p.fleeT = 0; p.dodgeT = 0;
+}
+
+// ---------- critters: shrews in the grass and eels in the river ----------
+function makeShrew() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
+  const fur = 0x5e4632, pale = 0xb8a58a;
+  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.22, 0.18, 0.42), n => n.y < -0.3 ? pale : fur)); body.position.y = 0.1; g.add(body);
+  const head = new THREE.Group(); head.position.set(0, 0.11, 0.22); g.add(head);
+  head.add(M(facet(new THREE.ConeGeometry(0.07, 0.22, 5).rotateX(Math.PI / 2), (n, m) => m.z > 0.08 ? 0xd99a9a : fur)));
+  for (const sx of [-1, 1]) { const e = M(facet(new THREE.OctahedronGeometry(0.018, 0), () => 0x0d0d0d)); e.position.set(sx * 0.04, 0.03, 0.01); head.add(e); }
+  const tail = M(facet(new THREE.ConeGeometry(0.018, 0.2, 4).translate(0, 0.1, 0).rotateX(-Math.PI / 2), () => 0x4a3828)); tail.position.set(0, 0.08, -0.2); g.add(tail);
+  g.scale.setScalar(1.6);
+  g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return { group: g, scale: 1.6, wings: [], legs: { visible: false }, head };
+}
+function makeEel() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat), segs = [];
+  for (let i = 0; i < 8; i++) {
+    const k = 1 - i * 0.085;
+    const sg = M(facet(new THREE.OctahedronGeometry(1, 0).scale(0.07 * k, 0.06 * k, 0.14), n => n.y < -0.2 ? 0xc9b98a : 0x4b5a2c));
+    sg.position.z = 0.7 - i * 0.2; g.add(sg); segs.push(sg);
+  }
+  for (const sx of [-1, 1]) { const e = M(facet(new THREE.OctahedronGeometry(0.02, 0), () => 0x0d0d0d)); e.position.set(sx * 0.05, 0.03, 0.78); g.add(e); }
+  g.scale.setScalar(2);
+  return { group: g, scale: 2, wings: [], legs: { visible: false }, segs };
+}
+function hideCritter(p, secs, move) {
+  p.state = 'hidden'; p.t = 0; p.hideFor = secs; p.b.group.visible = false; p.fleeT = 0;
+  if (move && p.type === 'shrew') {
+    for (let k = 0; k < 10; k++) { const x = p.home.x + (rand() - .5) * 40, z = p.home.z + (rand() - .5) * 40; if (heightAt(x, z) > 1.5) { p.pos.set(x, groundAt(x, z), z); break; } }
+  }
+}
+function surfaceEel(p) {
+  for (let k = 0; k < 30; k++) {
+    const z = (rand() - .5) * 1800, side = rand() < .5 ? -1 : 1, x = riverX(z) + side * (8 + rand() * 14);
+    if (heightAt(x, z) < -0.8) { p.pos.set(x, 0.06, z); p.yaw = rand() * 6.28; p.state = 'active'; p.t = 0; p.b.group.visible = true; return; }
+  }
+  p.t = 0; p.hideFor = 3;
+}
+const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 0, yaw: rand() * 6.28, moveT: 0, ran: false, respawn: 0 });
+{
+  let made = 0;
+  const near = [[EX + 40, EZ + 30], [EX - 60, EZ - 50], [EX - 30, EZ + 120], [EX + 20, EZ - 140]];
+  for (let k = 0; k < 600 && made < 44; k++) {
+    let x, z;
+    if (k < 60) { const n = near[k % near.length]; x = n[0] + (rand() - .5) * 30; z = n[1] + (rand() - .5) * 30; }
+    else { x = (rand() - .5) * 1800; z = (rand() - .5) * 1800; }
+    const h = heightAt(x, z);
+    if (h < 2 || h > 260 || slopeAt(x, z) < 0.8 || Math.hypot(x - VX, z - VZ) < 90) continue;
+    const b = makeShrew(); scene.add(b.group);
+    prey.push({ type: 'shrew', b, pos: new V3(x, groundAt(x, z), z), home: new V3(x, 0, z), state: 'active', ...critterBase() });
+    made++;
+  }
+  for (let i = 0; i < 9; i++) {
+    const b = makeEel(); scene.add(b.group);
+    const p = { type: 'eel', b, pos: new V3(), home: new V3(), state: 'hidden', ...critterBase() };
+    hideCritter(p, rand() * 12, false); prey.push(p);
+  }
+}
+function updateCritter(p, dt, playing) {
+  p.t += dt; p.dodgeT = Math.max(0, p.dodgeT - dt);
+  if (p.type === 'shrew') {
+    if (p.state === 'hidden') { if (p.t > p.hideFor) { p.state = 'active'; p.t = 0; p.b.group.visible = true; } return; }
+    const d = Math.hypot(F.pos.x - p.pos.x, F.pos.z - p.pos.z), above = F.pos.y - p.pos.y;
+    if (playing && d < 20 && above < 30 && p.fleeT <= 0 && !p.ran) { p.fleeT = 2.6; p.ran = true; p.yaw = Math.atan2(p.pos.x - F.pos.x, p.pos.z - F.pos.z); }
+    let speed = 0;
+    if (p.fleeT > 0) {
+      p.fleeT -= dt; speed = 2.6; p.yaw += Math.sin(p.t * 9) * dt * 3;
+      if (p.fleeT <= 0) { p.ran = false; hideCritter(p, 6 + rand() * 6, false); return; }
+    } else {
+      // forage in quick little dashes with pauses to sniff
+      p.moveT -= dt;
+      if (p.moveT < -1.5) { p.moveT = 0.6 + rand(); p.yaw += (rand() - .5) * 2.5; }
+      speed = p.moveT > 0 ? 1.1 : 0;
+      if (Math.hypot(p.pos.x - p.home.x, p.pos.z - p.home.z) > 25) p.yaw = Math.atan2(p.home.x - p.pos.x, p.home.z - p.pos.z);
+    }
+    const nx = p.pos.x + Math.sin(p.yaw) * speed * dt, nz = p.pos.z + Math.cos(p.yaw) * speed * dt;
+    if (heightAt(nx, nz) > 0.8) { p.pos.x = nx; p.pos.z = nz; } else p.yaw += Math.PI;
+    p.pos.y = groundAt(p.pos.x, p.pos.z);
+    p.vel.set(Math.sin(p.yaw) * speed, 0, Math.cos(p.yaw) * speed);
+    p.b.group.position.copy(p.pos); if (speed) p.b.group.position.y += Math.abs(Math.sin(p.t * 30)) * 0.04;
+    p.b.group.rotation.set(0, p.yaw, 0);
+    p.b.head.rotation.y = speed ? 0 : Math.sin(p.t * 5) * 0.5;
+  } else {
+    if (p.state === 'hidden') { if (p.t > p.hideFor) surfaceEel(p); return; }
+    if (p.t > 9) { hideCritter(p, 6 + rand() * 12, false); return; }
+    p.yaw += Math.sin(p.t * 0.7 + p.hideFor) * dt * 0.8;
+    const nx = p.pos.x + Math.sin(p.yaw) * 0.6 * dt, nz = p.pos.z + Math.cos(p.yaw) * 0.6 * dt;
+    if (heightAt(nx, nz) < -0.5) { p.pos.x = nx; p.pos.z = nz; } else p.yaw += Math.PI * dt * 3;
+    p.vel.set(Math.sin(p.yaw) * 0.6, 0, Math.cos(p.yaw) * 0.6);
+    p.b.group.position.copy(p.pos); p.b.group.rotation.set(0, p.yaw, 0);
+    p.b.segs.forEach((sg, i) => { sg.position.x = Math.sin(p.t * 6 - i * 0.9) * 0.025 * i; });
+  }
 }
 
 // ---------- threats ----------
@@ -710,50 +883,13 @@ function updateEagle(dt) {
   if (E.state === 'hunt') { E.ph += dt * 7; animWings(E.b, { ph: E.ph, amp: 0.55 }); }
   else { E.ph += dt * 5; const flapping = Math.sin(E.t * 0.15) > 0.85; animWings(E.b, flapping ? { ph: E.ph, amp: 0.4 } : { dihedral: 0.12 + Math.sin(E.t * 0.8) * 0.03 }); }
 }
-// crows: a gang that lives in the woods and mobs you when you fly slowly near them
-let crowHome = new V3(riverX(80) + 230, 0, 80);
-{ let best = null, bd = Infinity; for (const t of TREES) { const d = Math.hypot(t.x - crowHome.x, t.z - crowHome.z); if (d < bd) { bd = d; best = t; } } if (best) crowHome.set(best.x, best.top, best.z); }
-const crowFlock = { state: 'idle', cool: 10, fastT: 0, peckT: 0, mobT: 0 };
-const crows = [...Array(5)].map((_, i) => { const c = { b: makeBird(LOOK.crow), pos: crowHome.clone().add(new V3(i * 4, 20, 0)), vel: new V3(8, 0, 0), ph: i }; scene.add(c.b.group); return c; });
-function updateCrows(dt) {
-  const C = crowFlock; C.cool -= dt;
-  const kmh = F.speed * 3.6, playing = game.state === 'play';
-  tA.set(0, 0, 0); crows.forEach(c => tA.add(c.pos)); tA.multiplyScalar(1 / crows.length);
-  const dist = tA.distanceTo(F.pos);
-  const roost = nightF > 0.6 && C.state === 'idle';
-  crows.forEach(c => { c.b.group.visible = !roost; });
-  if (roost) return;
-  if (C.state === 'idle') {
-    if (playing && F.mode === 'fly' && dist < 90 && kmh < 70 && !F.hidden && C.cool <= 0) {
-      C.state = 'mob'; C.fastT = 0; C.mobT = 0; C.peckT = 1.5;
-      toast('Crows are mobbing you! Fly faster than 70 km/h to shake them off.', 'bad', 4000); sfx.caw(); showFactOnce('crows');
-    }
-  } else {
-    C.mobT += dt;
-    if (kmh > 70) C.fastT += dt; else C.fastT = Math.max(0, C.fastT - dt * 0.5);
-    if (!playing || C.fastT > 2.5 || dist > 170 || F.hidden || atNest() || C.mobT > 45) {
-      C.state = 'idle'; C.cool = 30;
-      if (playing) toast('You shook off the crows.', 'gold');
-    } else {
-      C.peckT -= dt;
-      if (C.peckT <= 0) {
-        C.peckT = 1.4 + rand();
-        if (crows.some(c => c.pos.distanceTo(F.pos) < 7) && kmh < 70) {
-          F.health -= 2; F.energy = Math.max(0, F.energy - 5); sfx.caw(); hurtPulse(0.35);
-          burst(F.pos, tB.set(0, 0, 0), [0x5a6a82, 0xf1e7d1], 4, 0);
-        }
-      }
-    }
-  }
-  crows.forEach((c, i) => {
-    if (C.state === 'mob') { const a = game.t * 2.2 + i * 1.26; tA.set(F.pos.x + Math.cos(a) * 5, F.pos.y + 1.5 + Math.sin(a * 1.7), F.pos.z + Math.sin(a) * 5); steer(c, tA, 28, 4, dt); }
-    else { const a = game.t * 0.35 + i * 1.26; tA.set(crowHome.x + Math.cos(a) * 25, crowHome.y + 18 + i * 2, crowHome.z + Math.sin(a) * 25); steer(c, tA, 12, 1.5, dt); }
-    c.pos.addScaledVector(c.vel, dt);
-    orientFlyer(c, dt);
-    // crows row along with slow, deep, even beats
-    c.ph += dt * (C.state === 'mob' ? 12 : 7.5);
-    animWings(c.b, { ph: c.ph, amp: 0.7 });
-  });
+// crows live in the woods; you can hunt them
+{
+  const home = new V3(riverX(80) + 230, 0, 80);
+  let best = null, bd = Infinity; for (const t of TREES) { const d = Math.hypot(t.x - home.x, t.z - home.z); if (d < bd) { bd = d; best = t; } }
+  if (best) home.set(best.x, 0, best.z);
+  addFlock('crow', home, 160, 12, 45, 5);
+  addFlock('crow', new V3(riverX(-600) + 200, 0, -600), 200, 12, 45, 4);
 }
 // foxes: roam the fields and pounce on a bird that is on the ground
 function makeFox() {
@@ -1096,6 +1232,20 @@ function distToSeg(p, a, b) {
 // How likely a strike is to hold: speed matters most, then the angle you come in from.
 function strikeOdds(p) {
   const kmh = F.speed * 3.6;
+  if (PREY[p.type].critter) {
+    let c, why;
+    if (p.type === 'shrew') {
+      c = kmh < 15 ? 0.5 : kmh < 90 ? 0.82 : kmh < 140 ? 0.45 : 0.2;
+      why = kmh >= 90 ? 'Too fast! You overshot the shrew. Swoop in slower.' : 'The shrew darted into the grass!';
+      if (p.fleeT > 0) c -= 0.12;
+    } else {
+      c = kmh < 90 ? 0.75 : 0.3;
+      why = kmh >= 90 ? 'Too fast! The eel slipped away in the splash.' : 'The slippery eel wriggled free!';
+    }
+    if (has('grip')) c += 0.1;
+    if (F.health < 40) c -= 0.1;
+    return { chance: clamp(c, 0.05, 0.97), why };
+  }
   let c = kmh < 50 ? 0.2 : kmh < 100 ? 0.45 : kmh < 170 ? 0.7 : kmh < 220 ? 0.86 : 0.95;
   tA.copy(p.vel).normalize();
   const along = F.fwd.dot(tA), fromAbove = -F.fwd.y;
@@ -1105,6 +1255,7 @@ function strikeOdds(p) {
   if (fromAbove > 0.35) c += 0.12;
   if (p.fleeT > 0) c -= 0.08;
   if (p.type === 'teal') c -= 0.05;
+  if (p.type === 'crow') { c -= 0.08; if (why === '') why = 'The crow twisted away. Crows are tough and agile!'; }
   if (has('grip')) c += 0.1;
   if (F.health < 40) c -= 0.1;
   if (!why) why = kmh < 100 ? 'Too slow! It dodged. Stoop from above for a cleaner strike.' : 'It jinked away at the last moment!';
@@ -1114,11 +1265,15 @@ function tryCatch() {
   if (F.carry) return;
   const R = 3.3 + (has('grip') ? 1.2 : 0);
   for (const p of prey) {
-    if (p.state !== 'fly' || p.dodgeT > 0) continue;
+    if (!catchable(p) || p.dodgeT > 0) continue;
     if (distToSeg(p.pos, F.prev, F.pos) < R) {
       const { chance, why } = strikeOdds(p);
       if (rand() < chance) catchPrey(p);
-      else {
+      else if (PREY[p.type].critter) {
+        stats().misses++; burst(p.pos, tA.set(0, 3, 0), PREY[p.type].feathers, 4, 0); sfx.miss();
+        hideCritter(p, 6 + rand() * 6, false);
+        toast('Missed! ' + why, 'bad', 3000);
+      } else {
         p.dodgeT = 3; p.fleeT = 3.5; stats().misses++;
         tA.set(F.fwd.z, 0.4, -F.fwd.x).multiplyScalar(rand() < 0.5 ? 12 : -12); p.vel.add(tA);
         burst(p.pos, p.vel, PREY[p.type].feathers, 5, 0); sfx.miss();
@@ -1129,9 +1284,11 @@ function tryCatch() {
   }
 }
 function catchPrey(p) {
-  const T = PREY[p.type], kmh = F.speed * 3.6, stoop = kmh >= 200;
+  const T = PREY[p.type], kmh = F.mode === 'fly' ? F.speed * 3.6 : 0, stoop = !T.critter && kmh >= 200;
   const xp = T.xp * (stoop ? 2 : 1);
-  burst(p.pos, p.vel, T.feathers);
+  burst(p.pos, p.vel, T.feathers, T.critter ? 12 : 36);
+  if (T.critter) showFactOnce(p.type); else if (p.type === 'crow') showFactOnce('crow');
+  p.b.group.visible = true;
   p.state = 'carried'; F.carry = p;
   falcon.group.add(p.b.group);
   p.b.group.position.set(0, -0.48, 0.05); p.b.group.rotation.set(0.25, 0, 0); p.b.group.scale.setScalar(p.b.scale / falcon.scale * 0.95);
@@ -1175,6 +1332,7 @@ function canDrink() {
 function actionLabel() {
   if (F.mode === 'sleep') return 'WAKE';
   if (F.carry && F.mode !== 'sleep') return 'EAT';
+  if (shrewInReach()) return 'POUNCE';
   if (canDrink()) return 'DRINK';
   if (F.mode === 'perch') return 'SLEEP';
   return '';
@@ -1184,9 +1342,20 @@ function doAction() {
   const a = actionLabel();
   if (a === 'WAKE') wake();
   else if (a === 'EAT') eatCarry();
+  else if (a === 'POUNCE') pounce();
   else if (a === 'DRINK') drink();
   else if (a === 'SLEEP') trySleep();
   else if (F.mode === 'ground') toast('Walk to the water\'s edge to drink, or fly to a tree or your nest to sleep.');
+}
+function shrewInReach() {
+  if (F.mode !== 'ground' || F.carry || F.stunT > 0) return null;
+  return prey.find(p => p.type === 'shrew' && p.state === 'active' && Math.hypot(p.pos.x - F.pos.x, p.pos.z - F.pos.z) < 2.6) || null;
+}
+function pounce() {
+  const p = shrewInReach(); if (!p) return;
+  F.yaw = Math.atan2(p.pos.x - F.pos.x, p.pos.z - F.pos.z); F.pos.x = lerp(F.pos.x, p.pos.x, 0.6); F.pos.z = lerp(F.pos.z, p.pos.z, 0.6);
+  if (rand() < (p.fleeT > 0 ? 0.55 : 0.8)) catchPrey(p);
+  else { hideCritter(p, 6 + rand() * 6, false); stats().misses++; sfx.miss(); toast('Missed! The shrew escaped into the grass.', 'bad'); }
 }
 function drink() {
   F.water = 100; F.drinkT = 1.6; stats().drinks++;
@@ -1194,9 +1363,10 @@ function drink() {
 }
 function trySleep() {
   if (F.mode === 'fly') { toast('Land in a tree or your nest first, then sleep.'); return; }
-  if (F.mode === 'ground') { toast('Too dangerous to sleep on the ground! Find a tree or your nest.', 'bad'); return; }
+  if (F.mode === 'ground' && nearNest()) { perchAt('nest', true); }
+  else if (F.mode === 'ground') { toast('Too dangerous to sleep on the ground! Find a tree or your nest.', 'bad'); return; }
   if (F.mode !== 'perch') return;
-  if (F.rest > 85 && nightF < 0.5) { toast('You are not tired yet.'); return; }
+  if (F.rest > 96 && nightF < 0.5) { toast('You are fully rested. Sleep when your Rest bar is lower, or at night.'); return; }
   if (F.carry) eatCarry();
   F.mode = 'sleep'; TOD.scale = 36; stats().sleeps++;
   $('sleepScreen').hidden = false;
@@ -1239,13 +1409,13 @@ function takeOff() {
   F.mode = 'fly'; F.energy -= 6;
   F.speed = fromPerch ? 13 : 11; F.pitch = fromPerch ? 0.15 : 0.55; F.pos.y += 0.8; F.tuck = 0; F.flapPh = 0;
   if (fromPerch && F.perchType === 'tree') F.pos.y += 2;
-  F.noPerchT = 1.2;
+  F.noPerchT = 1.2; F.takeoffT = 1.5; F.sink = 0;
   whoosh(0.2, 800);
 }
 function checkCollisions() {
-  const kmh = F.speed * 3.6;
+  const kmh = Math.hypot(F.speed, F.sink || 0) * 3.6;
   // the nest
-  if (F.noPerchT <= 0 && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 7 && F.pos.y < EY + 2.5 && F.pos.y > EY - 3 && kmh < 80) { perchAt('nest'); return true; }
+  if (F.noPerchT <= 0 && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 12 && F.pos.y < EY + 5 && F.pos.y > EY - 4 && kmh < 80) { perchAt('nest'); return true; }
   // trees: slow means perch and hide, fast means a painful crash
   for (const t of treesNear(F.pos.x, F.pos.z)) {
     const d = Math.hypot(F.pos.x - t.x, F.pos.z - t.z);
@@ -1301,11 +1471,9 @@ function updateFlight(dt, inp) {
   const wobble = injured ? Math.sin(game.t * 2.3) * 0.1 : 0;
   F.roll = damp(F.roll, inp.x * (0.95 - F.tuck * 0.35) * (injured ? 0.8 : 1) + wobble, 4, dt);
   F.yaw -= Math.sin(F.roll) * 1.95 * (1 - F.tuck * 0.45) * dt;
-  F.pitch += inp.y * (1.1 + F.speed / 90) * dt;
+  F.pitch += inp.y * (1.1 + F.speed / 90) * (F.stall ? 0.35 : 1) * dt;
   if (F.tuck > 0.4 && inp.y <= 0) F.pitch = damp(F.pitch, -1.25, 1.4 * F.tuck, dt);
   if (settings.autoLevel && Math.abs(inp.y) < 0.1 && F.tuck < 0.3) F.pitch = damp(F.pitch, -0.05, 0.45, dt);
-  F.stall = F.speed < 11;
-  if (F.stall) F.pitch -= (11 - F.speed) * 0.12 * dt;
   // gentle aim assist toward the marked prey
   if (target && !F.carry) {
     tA.subVectors(target.pos, F.pos); const d = tA.length(); tA.normalize();
@@ -1327,20 +1495,34 @@ function updateFlight(dt, inp) {
   let lift = F.flare * 1.5;
   if (flapping) { acc += 1.5 * power; lift += 2.6 * power; F.energy -= 13 * dt; }
   if (F.carry) acc -= 0.5;
+  // Lift falls away with the square of airspeed. Below stall speed the wings can't hold you up:
+  // you sink, the nose drops and a wing may dip. Flapping hard or diving to gain speed recovers.
+  F.takeoffT = Math.max(0, (F.takeoffT || 0) - dt);
+  const VSTALL = 10;
+  const liftFrac = Math.min(1, (F.speed / VSTALL) ** 2) + (flapping ? 0.5 : 0) + (F.takeoffT > 0 ? 1 : 0) + F.tuck;
+  const deficit = clamp(1 - liftFrac, 0, 1);
+  F.sink = damp(F.sink || 0, deficit * 16, 2.2, dt);
+  F.stall = deficit > 0.12;
+  F.stallWarn = !F.stall && F.speed < 13.5 && !flapping && F.tuck < 0.3;
+  if (deficit > 0) { F.pitch -= deficit * 2.2 * dt; F.roll += Math.sin(game.t * 2.7) * deficit * 1.6 * dt; }
   F.inThermal = false;
   for (const t of THERMALS) {
-    if (Math.hypot(F.pos.x - t.x, F.pos.z - t.z) < t.r && F.pos.y < t.top) { F.inThermal = true; lift += t.lift * (1 - F.tuck); }
+    const lean = thermalLean(t, F.pos.y);
+    if (Math.hypot(F.pos.x - lean.x, F.pos.z - lean.z) < t.r && F.pos.y < t.top) { F.inThermal = true; lift += t.lift * (1 - F.tuck); }
   }
   F.thin = F.pos.y > THIN_AIR;
   if (F.thin) F.energy -= 7 * dt;
   F.energy = clamp(F.energy, 0, energyCap());
   if (F.energy <= 0 && !F.exhausted) { F.exhausted = true; toast('Out of energy! You can only glide now. Land to rest, or eat your prey.', 'bad', 4500); }
-  F.speed = clamp(F.speed + acc * dt, 7, injured ? 75 : 115);
+  F.speed = clamp(F.speed + acc * dt, 3, injured ? 75 : 115);
 
   fwdOf(F.yaw, F.pitch, F.fwd);
   F.pos.addScaledVector(F.fwd, F.speed * dt);
-  F.pos.y += lift * dt;
+  F.pos.y += (lift - F.sink) * dt;
+  // the air itself moves you: wind changes speed and direction with height
+  windAt(F.pos.y, F.wind); F.pos.addScaledVector(F.wind, dt);
 
+  tryCatch();
   if (checkCollisions()) return;
   if (F.pos.y > 640) { F.pos.y = 640; F.pitch = Math.min(F.pitch, 0); }
   const r = Math.hypot(F.pos.x, F.pos.z);
@@ -1353,7 +1535,6 @@ function updateFlight(dt, inp) {
   if (kmh > stats().topSpeed) stats().topSpeed = kmh;
   if (F.inThermal) stats().thermalTime += dt;
   F.flapping = flapping;
-  tryCatch();
   if (F.carry && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 20 && Math.abs(F.pos.y - EY) < 30) feedChicks();
 }
 function updateGround(dt, inp) {
@@ -1369,8 +1550,10 @@ function updateGround(dt, inp) {
     }
     if (inp.flapPressed) takeOff();
   }
+  if (F.mode === 'ground' && nearNest() && F.stunT <= 0) { perchAt('nest', true); toast('You hop into your nest.', 'gold'); return; }
   if (F.mode === 'ground') F.pos.y = surfaceAt(F.pos.x, F.pos.z) + LEG + (F.moving ? Math.abs(Math.sin(game.t * 9)) * 0.06 : 0);
 }
+const nearNest = () => Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 18;
 function updatePerch(dt, inp) {
   F.yaw -= inp.x * 1.8 * dt;
   if (inp.flapPressed) takeOff();
@@ -1382,7 +1565,7 @@ function updateSleep() {
 }
 function updateNeeds(dt) {
   const dh = dt * TOD.scale / HOUR, sleeping = F.mode === 'sleep', resting = F.mode !== 'fly';
-  F.food = Math.max(0, F.food - dh * (sleeping ? 2.5 : 5));
+  F.food = Math.max(0, F.food - dh * (sleeping ? 2 : 4));
   F.water = Math.max(0, F.water - dh * (sleeping ? 3 : 6.5));
   if (sleeping) F.rest = Math.min(100, F.rest + dh * 22);
   else F.rest = Math.max(0, F.rest - dh * (nightF > 0.5 ? 7 : 4.5));
@@ -1413,8 +1596,9 @@ function poseFalcon(dt, inp) {
     g.rotation.set(-F.pitch, F.yaw, F.roll);
     if (F.flapping) F.flapPh += dt * 13;
     const glideFlex = Math.sin(game.t * 1.7) * 0.04;
-    animWings(b, { ph: F.flapPh, amp: F.flapping ? 0.9 : 0, tuck: F.tuck, dihedral: F.flapping ? 0 : 0.06 + glideFlex, flare: F.flare });
-    b.legs.visible = !!F.carry || (agl < 14 && F.speed < 22) || F.flare > 0.3;
+    if (F.stall && !F.flapping) { F.flapPh += dt * 9; animWings(b, { ph: F.flapPh, amp: 0.3, dihedral: 0.5, tuck: F.tuck }); }
+    else animWings(b, { ph: F.flapPh, amp: F.flapping ? 0.9 : 0, tuck: F.tuck, dihedral: F.flapping ? 0 : 0.06 + glideFlex, flare: F.flare });
+    b.legs.visible = !!F.carry || (agl < 14 && F.speed < 22) || F.flare > 0.3 || F.stall;
     b.legs.rotation.x = F.carry ? 0.2 : -0.9 * F.flare;
     b.tail.scale.x = 1 + Math.max(F.flare, Math.abs(F.roll) * 0.6, F.speed < 14 ? 0.5 : 0) * 0.9 - F.tuck * 0.35;
     b.tail.rotation.z = -F.roll * 0.35; b.tail.rotation.x = -F.flare * 0.45 + inp.y * 0.12;
@@ -1526,7 +1710,11 @@ function drawMini() {
   mctx.setLineDash([2, 2]); mctx.strokeStyle = 'rgba(255,234,176,.9)';
   for (const t of THERMALS) { const [x, y] = toMap(t.x, t.z); mctx.beginPath(); mctx.arc(x, y, 4, 0, 7); mctx.stroke(); }
   mctx.setLineDash([]);
-  for (const p of prey) { if (p.state !== 'fly') continue; const [x, y] = toMap(p.pos.x, p.pos.z); mctx.fillStyle = p.type === 'teal' ? '#5fe0b0' : '#ffffff'; mctx.fillRect(x - 1.5, y - 1.5, 3, 3); }
+  const dotCol = { pigeon: '#ffffff', teal: '#5fe0b0', crow: '#1b1b1b', eel: '#c9b98a' };
+  for (const p of prey) {
+    if (!(catchable(p) || p.state === 'swim') || !dotCol[p.type]) continue;
+    const [x, y] = toMap(p.pos.x, p.pos.z); mctx.fillStyle = dotCol[p.type]; mctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+  }
   mctx.fillStyle = '#ef6a55';
   if (eagle.b.group.visible) { const [x, y] = toMap(eagle.pos.x, eagle.pos.z); mctx.fillRect(x - 2.5, y - 2.5, 5, 5); }
   const [ex, ey] = toMap(EX, EZ); mctx.fillStyle = '#f0c02a'; mctx.save(); mctx.translate(ex, ey); mctx.rotate(Math.PI / 4); mctx.fillRect(-4, -4, 8, 8); mctx.restore();
@@ -1559,6 +1747,10 @@ function updateHUD() {
   setBar('nHealth', F.health); setBar('nEnergy', F.energy, maxEnergy()); setBar('nFood', F.food); setBar('nWater', F.water); setBar('nRest', F.rest);
   $('clockTime').textContent = `Day ${TOD.day} · ${fmtTime(TOD.hour)}`; $('clockPart').textContent = partOfDay(TOD.hour);
   $('gauges').classList.toggle('stoop', flying && F.tuck > 0.5);
+  windAt(F.pos.y, F.wind);
+  const wk = Math.round(F.wind.length() * 3.6), wrel = wrapAngle(Math.atan2(F.wind.x, F.wind.z) - F.yaw);
+  $('windSpd').textContent = wk; $('windArrow').style.transform = `rotate(${-wrel}rad)`;
+  if (wk > 28 && flying) showFactOnce('wind');
   $('vignette').style.opacity = flying ? clamp((kmh - 150) / 200, 0, 0.9) : 0;
   hurtLevel = Math.max(hurtLevel * 0.95, F.health < 30 ? 0.35 + Math.sin(game.t * 4) * 0.1 : 0);
   $('hurt').style.opacity = hurtLevel;
@@ -1567,7 +1759,8 @@ function updateHUD() {
   const tags = [];
   if (flying && F.tuck > 0.5) tags.push(['STOOP', 'gold']);
   if (flying && F.thin) tags.push(['THIN AIR', 'bad']);
-  if (flying && F.stall) tags.push(['STALL: NOSE DROPPING', 'bad']);
+  if (flying && F.stall) tags.push(['STALL! DIVE OR FLAP TO RECOVER', 'bad']);
+  else if (flying && F.stallWarn) tags.push(['LOW SPEED', 'gold']);
   if (F.inThermal && flying) tags.push(['THERMAL', 'good']);
   if (F.exhausted) tags.push(['EXHAUSTED', 'bad']);
   if (F.health < 40) tags.push(['INJURED', 'bad']);
@@ -1580,7 +1773,7 @@ function updateHUD() {
   // context prompt
   let pr = '';
   const act = actionLabel();
-  if (F.mode === 'ground') pr = F.stunT > 0 ? 'Stunned…' : `Walk slowly with <b>${isTouch ? 'the stick' : 'W A S D'}</b>. <b>${KEY.fly}</b> to take off.` + (act === 'DRINK' ? ` <b>${KEY.act}</b> to drink.` : '');
+  if (F.mode === 'ground') pr = F.stunT > 0 ? 'Stunned…' : `Walk slowly with <b>${isTouch ? 'the stick' : 'W A S D'}</b>. <b>${KEY.fly}</b> to take off.` + (act === 'DRINK' ? ` <b>${KEY.act}</b> to drink.` : act === 'POUNCE' ? ` <b>${KEY.act}</b> to pounce on the shrew!` : '');
   else if (F.mode === 'perch') pr = `<b>${KEY.fly}</b> to take off. <b>${KEY.sleep}</b> to sleep.`;
   if (F.carry && F.mode !== 'sleep') pr = `Carrying a <b>${PREY[F.carry.type].name.toLowerCase()}</b>. Take it to the eyrie, or <b>${KEY.act}</b> to eat it.` + (flying ? '' : ` <b>${KEY.fly}</b> to take off.`);
   if (pr !== lastPrompt) { lastPrompt = pr; $('prompt').innerHTML = pr; $('prompt').hidden = !pr; }
@@ -1609,8 +1802,8 @@ function updateHUD() {
   const range = (has('keen') ? 450 : 250) * (1 - nightF * 0.5);
   target = null; let best = Infinity;
   if (!F.carry && flying) for (const p of prey) {
-    if (p.state !== 'fly') continue;
-    tA.subVectors(p.pos, F.pos); const d = tA.length(); if (d > range) continue;
+    if (!catchable(p) && p.state !== 'swim') continue;
+    tA.subVectors(p.pos, F.pos); const d = tA.length(); if (d > (PREY[p.type].range || range)) continue;
     const dot = tA.dot(F.fwd) / d; if (dot < 0.35) continue;
     const score = d * (1.6 - dot); if (score < best) { best = score; target = p; }
   }
@@ -1620,7 +1813,8 @@ function updateHUD() {
     placeMarker(mk, target.pos);
     const d = Math.round(target.pos.distanceTo(F.pos));
     let label = `${PREY[target.type].name} · ${d} m`;
-    if (d < 70) label += ` · ${Math.round(strikeOdds(target).chance * 100)}% strike`;
+    if (target.state === 'swim') label = `${PREY[target.type].name} · on the water · ${d} m`;
+    else if (d < 70) label += ` · ${Math.round(strikeOdds(target).chance * 100)}% strike`;
     if (target.dodgeT > 0) label = `${PREY[target.type].name} · escaping`;
     mk.firstChild.textContent = label;
     mk.classList.toggle('close', d < 70);
@@ -1631,12 +1825,12 @@ function updateHUD() {
   tk.hidden = !showT || F.inThermal;
   if (!tk.hidden) {
     let nt = THERMALS[0], nd = Infinity; for (const t of THERMALS) { const d = Math.hypot(F.pos.x - t.x, F.pos.z - t.z); if (d < nd) { nd = d; nt = t; } }
-    placeMarker(tk, tB.set(nt.x, Math.max(F.pos.y, nt.base + 20), nt.z)); tk.firstChild.textContent = 'Thermal · ' + Math.round(nd) + ' m';
+    const ty = Math.max(F.pos.y, nt.base + 20), tl = thermalLean(nt, ty);
+    placeMarker(tk, tB.set(tl.x, ty, tl.z)); tk.firstChild.textContent = 'Thermal · ' + Math.round(nd) + ' m';
   }
   // threat markers
   const threats = [];
   if (eagle.b.group.visible) { const d = eagle.pos.distanceTo(F.pos); if (d < 450) threats.push({ pos: eagle.pos, label: (eagle.state === 'hunt' ? 'EAGLE HUNTING · ' : 'Golden eagle · ') + Math.round(d) + ' m' }); }
-  if (crowFlock.state === 'mob') threats.push({ pos: crows[0].pos, label: 'Crows!' });
   for (const f of foxes) { const d = f.pos.distanceTo(F.pos); if ((f.state === 'hunt' || (F.mode === 'ground' && d < 120))) threats.push({ pos: tC.copy(f.pos).setY(f.pos.y + 1), label: (f.state === 'hunt' ? 'FOX CHARGING · ' : 'Fox · ') + Math.round(d) + ' m' }); }
   for (let i = 0; i < 3; i++) {
     const el = $('mkT' + i), t = threats[i];
@@ -1681,7 +1875,7 @@ function applySnapshot(s) {
   F.yaw = b.yaw ?? F.yaw;
   F.prev.copy(F.pos);
   $('sleepScreen').hidden = true;
-  eagle.state = 'patrol'; eagle.cool = 30; crowFlock.state = 'idle'; crowFlock.cool = 10;
+  eagle.state = 'patrol'; eagle.cool = 30;
   foxes.forEach(f => { f.state = 'wander'; f.cool = 10; });
   camInit = false;
   return true;
@@ -1762,14 +1956,14 @@ $('cards').innerHTML = BIRDS.map(b => `
   </button>`).join('');
 $('cards').addEventListener('click', e => { const c = e.target.closest('.card'); if (c && c.classList.contains('locked')) toast(`${c.querySelector('h3').textContent} isn't ready yet`, '', 1800); });
 const HOWTO = isTouch
-  ? [['Left thumb', 'Steer. Push up to climb, pull down to dive. Walk on the ground'], ['FLAP', 'Flap (uses energy), or take off'], ['DIVE', 'Fold your wings and stoop'], ['ACT', 'Eat, drink or sleep, when you can'], ['VIEW', 'Switch camera'], ['Landing', 'Below 60 km/h, push up to flare, then touch down']]
-  : [['A D', 'Turn left and right'], ['W S', 'Climb (nose up) and dive (nose down)'], ['Space', 'Flap (uses energy), or take off'], ['Shift', 'Fold your wings and stoop'], ['E', 'Eat, drink or sleep, when you can'], ['Z', 'Sleep when perched'], ['V', 'Switch camera'], ['Esc', 'Pause, save and load'], ['Landing', 'Below 60 km/h, hold W to flare, then touch down']];
+  ? [['Left thumb', 'Steer. Push up to climb, pull down to dive. Walk on the ground'], ['FLAP', 'Flap (uses energy), or take off'], ['DIVE', 'Fold your wings and stoop'], ['ACT', 'Eat, drink, sleep, or pounce on a shrew'], ['VIEW', 'Switch camera'], ['Landing', 'Below 60 km/h, push up to flare, then touch down']]
+  : [['A D', 'Turn left and right'], ['W S', 'Climb (nose up) and dive (nose down)'], ['Space', 'Flap (uses energy), or take off'], ['Shift', 'Fold your wings and stoop'], ['E', 'Eat, drink, sleep, or pounce on a shrew'], ['Z', 'Sleep when perched'], ['V', 'Switch camera'], ['Esc', 'Pause, save and load'], ['Landing', 'Below 60 km/h, hold W to flare, then touch down']];
 const howtoHTML = HOWTO.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('') + (isTouch ? '' : '<div><kbd>Gamepad</kbd><span>Supported too</span></div>');
 $('howto').innerHTML = howtoHTML; $('howto2').innerHTML = howtoHTML;
 
 function renderPause() {
   const s = stats();
-  $('statgrid').innerHTML = [['Level', `${levelIdx() + 1} · ${LEVELS[levelIdx()].name}`], ['XP', prog.xp], ['Wood pigeons', s.pigeon], ['Teal', s.teal], ['Missed strikes', s.misses], ['Stoop strikes', s.stoops], ['Chicks fed', s.fed], ['Top speed', Math.round(s.topSpeed) + ' km/h']]
+  $('statgrid').innerHTML = [['Level', `${levelIdx() + 1} · ${LEVELS[levelIdx()].name}`], ['XP', prog.xp], ['Wood pigeons', s.pigeon], ['Teal', s.teal], ['Crows', s.crow], ['Shrews', s.shrew], ['Eels', s.eel], ['Missed strikes', s.misses], ['Stoop strikes', s.stoops], ['Chicks fed', s.fed], ['Top speed', Math.round(s.topSpeed) + ' km/h']]
     .map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
   $('skills').innerHTML = LEVELS.filter(L => L.skill).map(L => {
     const got = has(L.skill), S = SKILLS[L.skill];
@@ -1851,8 +2045,9 @@ function tick() {
   if (game.state === 'menu' || live) {
     updateTime(dt);
     updatePrey(dt, live); updateParts(dt); updateChicks(dt); updateThermals(dt);
-    updateEagle(dt); updateCrows(dt); foxes.forEach(f => updateFox(f, dt));
-    for (const c of clouds) { c.position.x += dt * 3; if (c.position.x > 1400) c.position.x = -1400; }
+    updateEagle(dt); updateWind(dt); foxes.forEach(f => updateFox(f, dt));
+    windAt(560, tC);
+    for (const c of clouds) { c.position.x += tC.x * dt; c.position.z += tC.z * dt; for (const k of ['x', 'z']) { if (c.position[k] > 1400) c.position[k] = -1400; if (c.position[k] < -1400) c.position[k] = 1400; } }
   }
   updateCamera(dt);
   updateSpeedLines(dt);
@@ -1864,5 +2059,5 @@ updateTime(0);
 $('loading').remove();
 $('menu').hidden = false;
 renderMenu();
-window.__talon = { F, game, prey, TREES, foxes, eagle, crowFlock, TOD, heightAt, EYRIE, camera, applySnapshot, snapshot, takeOff, perchAt, landGround, doAction, settings };
+window.__talon = { F, game, prey, TREES, foxes, eagle, TOD, wind: W, windAt, heightAt, EYRIE, camera, applySnapshot, snapshot, takeOff, perchAt, landGround, doAction, settings };
 tick();
