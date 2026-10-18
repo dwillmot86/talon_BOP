@@ -115,7 +115,7 @@ body.touch .g.wind b{font-size:17px}
 #fpm.down{color:#ffd28a}
 #fpm.up{color:#b8ecff}
 #horizon{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
-#horizon i{position:absolute;left:-120vw;width:240vw;top:0;border-top:1.5px dashed rgba(255,255,255,.38)}
+#horizon i{position:absolute;left:-120vw;width:240vw;top:0;border-top:1px dashed rgba(255,255,255,.22)}
 #flash{position:absolute;inset:0;opacity:0;transition:opacity .5s}
 #vignette{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(10,20,30,.55) 100%)}
 #hurt{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 50%,rgba(160,20,20,.5) 100%)}
@@ -307,6 +307,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
       <button id="invertBtn" class="ghost">Invert up/down: off</button>
       <button id="levelBtn" class="ghost">Auto-level: off</button>
       <button id="soundBtn" class="ghost">Sound: on</button>
+      <button id="horizonBtn" class="ghost">Horizon line: on</button>
       <button id="camBtn" class="ghost">View: behind</button>
     </div>
     <h2>Save and load</h2>
@@ -321,6 +322,8 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
     <div class="statgrid panel" id="statgrid"></div>
     <h2>Skills</h2>
     <div class="skills" id="skills"></div>
+    <h2>Flying tips</h2>
+    <div class="skills" id="tipsList"></div>
     <h2>Controls</h2>
     <div class="howto panel" id="howto2"></div>
     <div class="row">
@@ -771,10 +774,10 @@ const LOOK = {
     beak: 0x3a3a3a, beakTip: 0x1e1e1e, cere: 0xe8b830, feet: 0xe8b830 },
 };
 Object.assign(LOOK, {
-  owl: { realLen: 0.35, realSpan: 0.89, body: [.3, .3, .7], headR: .17, headY: .14, headZ: .34, wingZ: .08, span: .45, headShape: [1.05, 1, 0.85], beakLen: .7, hook: .9,
+  owl: { realLen: 0.35, realSpan: 0.89, body: [.24, .25, .62], headR: .15, headY: .13, headZ: .32, wingZ: .08, span: .45, headShape: [1.05, 1, 0.85], beakLen: .7, hook: .9,
     profile: [[0, -.5], [.25, -.3], [.5, 0], [.48, .3], [.3, .45], [0, .5]],
-    inner: [[0, .16], [.45, .14], [.45, -.2], [.32, -.22], [.2, -.2], [0, -.22]],
-    outer: [[0, .14], [.3, .12], [.5, .02], [.48, -.08], [.36, -.15], [.2, -.2], [0, -.2]],
+    inner: [[0, .18], [.45, .17], [.45, -.24], [.32, -.27], [.2, -.24], [0, -.26]],
+    outer: [[0, .17], [.3, .15], [.52, .04], [.5, -.08], [.4, -.18], [.24, -.25], [0, -.24]],
     tail: [[-.07, 0], [-.1, -.22], [.1, -.22], [.07, 0]],
     back: 0xcf9f5a, mantle: 0xb9b0a2, belly: 0xfbf6ec, head: 0xd0a060, face: 0xfdfaf2, wing: 0xd8a862, tip: 0xc2a27a, under: 0xfaf4e6, beak: 0xe6d3b0, feet: 0xd9cfc0 },
   osprey: { realLen: 0.57, realSpan: 1.6, body: [.26, .24, .95], headR: .13, headY: .08, headZ: .52, wingZ: .12, span: .55, headShape: [.85, .85, 1.25], beakLen: 1.3,
@@ -804,17 +807,17 @@ Object.assign(LOOK, {
 
 // Each playable bird flies differently, has its own special skill and its own favourite food.
 const SPECIES = {
-  peregrine: { look: 'falcon', name: 'Peregrine Falcon', plural: 'Peregrines', drag: .0016, tuckDrag: .00098, arrowDrag: .00078, thrust: 1.5, lift: 2.6, turn: 1.95, energy: 100, flapCost: 13, maxSpeed: 115, thermal: 1, ability: null, start: 7,
+  peregrine: { look: 'falcon', name: 'Peregrine Falcon', plural: 'Peregrines', drag: .0016, tuckDrag: .00098, arrowDrag: .00078, thrust: 1.88, lift: 2.6, turn: 1.95, energy: 100, flapCost: 5, maxSpeed: 115, thermal: 1, ability: null, start: 7,
     diet: { pigeon: 1, teal: 1, crow: 1, finch: .8, shrew: 1, eel: 1, fish: .3, hare: .1, carrion: .6 } },
-  eagle: { look: 'eagle', name: 'Golden Eagle', plural: 'Golden eagles', drag: .0013, tuckDrag: .0016, arrowDrag: .0013, thrust: 1.4, lift: 2.8, turn: 1.4, energy: 140, flapCost: 15, maxSpeed: 90, thermal: 1.3, ability: 'sight', start: 7,
+  eagle: { look: 'eagle', name: 'Golden Eagle', plural: 'Golden eagles', drag: .0013, tuckDrag: .0016, arrowDrag: .0013, thrust: 1.75, lift: 2.8, turn: 1.4, energy: 140, flapCost: 6, maxSpeed: 90, thermal: 1.3, ability: 'sight', start: 7,
     diet: { hare: 1.2, crow: .9, teal: .8, pigeon: .7, shrew: .9, fish: .6, eel: .7, carrion: 1, finch: .3 } },
-  owl: { look: 'owl', name: 'Barn Owl', plural: 'Barn owls', drag: .0024, tuckDrag: .0035, arrowDrag: .003, thrust: 1.4, lift: 3, turn: 2.4, energy: 90, flapCost: 10, maxSpeed: 60, thermal: .8, ability: 'listen', nocturnal: true, silent: true, start: 19.5,
+  owl: { look: 'owl', name: 'Barn Owl', plural: 'Barn owls', drag: .0024, tuckDrag: .0035, arrowDrag: .003, thrust: 1.75, lift: 3, turn: 2.4, energy: 90, flapCost: 4, maxSpeed: 60, thermal: .8, ability: 'listen', nocturnal: true, silent: true, start: 19.5,
     diet: { shrew: 1.25, finch: .6, pigeon: .4, teal: .2, crow: .2, eel: .3, fish: .2, hare: .1, carrion: .5 } },
-  osprey: { look: 'osprey', name: 'Osprey', plural: 'Ospreys', drag: .0017, tuckDrag: .0014, arrowDrag: .0012, thrust: 1.5, lift: 2.8, turn: 1.7, energy: 110, flapCost: 12, maxSpeed: 90, thermal: 1, ability: 'hover', start: 7,
+  osprey: { look: 'osprey', name: 'Osprey', plural: 'Ospreys', drag: .0017, tuckDrag: .0014, arrowDrag: .0012, thrust: 1.88, lift: 2.8, turn: 1.7, energy: 110, flapCost: 5, maxSpeed: 90, thermal: 1, ability: 'hover', start: 7,
     diet: { fish: 1.3, eel: 1.2, pigeon: .15, teal: .15, crow: .1, finch: .1, shrew: .15, hare: .05, carrion: .1 } },
-  kite: { look: 'kite', name: 'Red Kite', plural: 'Red kites', drag: .0011, tuckDrag: .0025, arrowDrag: .002, thrust: 1.2, lift: 2.4, turn: 2.6, energy: 120, flapCost: 11, maxSpeed: 80, thermal: 1.2, ability: 'scan', start: 7,
+  kite: { look: 'kite', name: 'Red Kite', plural: 'Red kites', drag: .0011, tuckDrag: .0025, arrowDrag: .002, thrust: 1.5, lift: 2.4, turn: 2.6, energy: 120, flapCost: 4.5, maxSpeed: 80, thermal: 1.2, ability: 'scan', start: 7,
     diet: { carrion: 1.25, shrew: .9, finch: .4, pigeon: .3, eel: .5, fish: .4, crow: .2, teal: .2, hare: .1 } },
-  hawk: { look: 'hawk', name: 'Sparrowhawk', plural: 'Sparrowhawks', drag: .002, tuckDrag: .0018, arrowDrag: .0015, thrust: 2.2, lift: 3, turn: 2.9, energy: 80, flapCost: 16, maxSpeed: 90, thermal: .9, ability: 'burst', treeSafe: true, start: 7,
+  hawk: { look: 'hawk', name: 'Sparrowhawk', plural: 'Sparrowhawks', drag: .002, tuckDrag: .0018, arrowDrag: .0015, thrust: 2.75, lift: 3, turn: 2.9, energy: 80, flapCost: 6, maxSpeed: 90, thermal: .9, ability: 'burst', treeSafe: true, start: 7,
     diet: { finch: 1.3, pigeon: .8, shrew: .6, crow: .3, teal: .3, eel: .3, fish: .1, hare: .05, carrion: .3 } },
 };
 const ABILITY = {
@@ -917,7 +920,7 @@ const THERMALS = [
 ].map(([x, z]) => ({ x, z, r: 42, lift: 7, top: THIN_AIR - 10, base: groundAt(x, z) }));
 // ---------- wind ----------
 // Wind gets stronger with height and veers (turns) as you climb. Its strength and direction slowly change over time.
-const W = { dir: rand() * 6.283, strength: 4.5 };
+const W = { dir: rand() * 6.283, strength: 2.6 };
 const wTmp = new V3();
 function windAt(y, out) {
   const h = clamp(y / THIN_AIR, 0, 1.3);
@@ -928,7 +931,7 @@ function windAt(y, out) {
 }
 function updateWind(dt) {
   W.dir += Math.sin(game.t * 0.013) * 0.03 * dt;
-  W.strength = 4.5 + 2.5 * Math.sin(game.t * 0.006 + 1.7);
+  W.strength = 2.6 + 1.4 * Math.sin(game.t * 0.006 + 1.7);
 }
 // thermals lean downwind as they rise
 function thermalLean(t, y) { windAt(y, wTmp); const k = Math.max(0, y - t.base) / 60; return { x: t.x + wTmp.x * k, z: t.z + wTmp.z * k }; }
@@ -998,7 +1001,7 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
 };
-const settings = { invert: false, muted: false, autoLevel: false, ...(store.get(SETTINGS_KEY) || {}) };
+const settings = { invert: false, muted: false, autoLevel: false, horizon: true, ...(store.get(SETTINGS_KEY) || {}) };
 const saveSettings = () => store.set(SETTINGS_KEY, settings);
 const blankStats = () => ({ pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, finch: 0, hare: 0, fish: 0, carrion: 0, scans: 0, bursts: 0, listenTime: 0, hoverTime: 0, woodsTime: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
 let prog = { xp: 0, mission: 0, stats: blankStats(), done: false };
@@ -1033,6 +1036,10 @@ const FACTS = {
   shrew: 'Shrews have smelly glands that put off foxes and cats, but birds of prey have a poor sense of smell, so owls and hawks eat them happily.',
   eel: 'In real life peregrines very rarely catch fish. Snatching eels and fish from the water is really the osprey\'s job: ospreys have spiky pads on their feet to grip slippery prey.',
   teal: 'Teal are Britain\'s smallest ducks. When danger comes they spring straight up off the water, which is why a group of teal is called a "spring".',
+  hare: 'Mountain hares can run at over 60 km/h and zigzag sharply to escape. Their fur turns white in winter.',
+  fish: 'Brown trout live in clear rivers and streams. They rise to the surface to snap up insects, which is when a hunter can grab them.',
+  carrion: 'Eating animals that are already dead is called scavenging. It\'s an easy meal, and it helps keep the countryside clean.',
+  finch: 'Chaffinches are one of Britain\'s commonest birds. They fly in a bouncing way: a few flaps, then a glide with wings closed.',
   eThermal: 'Golden eagles can soar for hours on thermals and ridge winds, hardly flapping their 2 m wide wings.',
   eSight: 'An eagle\'s eyesight is several times sharper than ours. It can spot a hare moving more than a kilometre away.',
   eHare: 'Mountain hares and red grouse are the golden eagle\'s main food in Scotland. Mountain hares turn white in winter to hide in the snow.',
@@ -1854,7 +1861,36 @@ function showFact(key, head = 'Falcon fact') {
   clearTimeout(factTimer); factTimer = setTimeout(() => { $('fact').hidden = true; }, 14000);
 }
 const seenFacts = new Set();
-function showFactOnce(key) { if (seenFacts.has(key)) return; seenFacts.add(key); showFact(key, 'Wild fact'); }
+const TIPS = {
+  headwind: 'You are flying into a headwind, so you are going slower over the ground. The wind is lighter low down, so fly lower, or turn so the wind arrow points up (wind behind you).',
+  energy: 'Energy is getting low. Stop flapping and glide: tip your nose down a little to keep your speed, and circle in a thermal to climb for free.',
+  exhausted: 'Out of energy? Land on the ground, in a tree or at your nest to get it back. Eating something you catch also tops it up.',
+  slow: 'Going slowly? Point your nose down a little to swap height for speed, or give a few flaps.',
+  flapping: 'Real birds of prey glide most of the time and only flap in short bursts. Gliding saves energy for the hunt.',
+  climb: 'To climb high without using energy, find a thermal (swirling golden dust) and circle inside it.',
+};
+const tipSeen = {};
+let tipCool = 20, slowT = 0, flapT = 0;
+function maybeTip(dt) {
+  tipCool -= dt;
+  const flying = F.mode === 'fly';
+  slowT = flying && F.speed * 3.6 < 32 && !F.hovering ? slowT + dt : 0;
+  flapT = flying && F.flapping ? flapT + dt : Math.max(0, flapT - dt * 2);
+  if (tipCool > 0 || !$('fact').hidden) return;
+  const w = F.wind, ws = w.length();
+  const pick =
+    flying && ws > 4 && (w.x * F.fwd.x + w.z * F.fwd.z) < -0.6 * ws ? 'headwind' :
+    F.exhausted ? 'exhausted' :
+    flying && F.energy < energyCap() * 0.35 ? 'energy' :
+    slowT > 3 ? 'slow' :
+    flapT > 6 ? 'flapping' :
+    flying && F.inThermal === false && F.pos.y - groundAt(F.pos.x, F.pos.z) < 15 && F.energy < energyCap() * 0.6 ? 'climb' : null;
+  if (!pick || (tipSeen[pick] || 0) >= 2) return;
+  tipSeen[pick] = (tipSeen[pick] || 0) + 1; tipCool = 75;
+  $('factHead').textContent = 'Flying tip'; $('factText').textContent = TIPS[pick]; $('fact').hidden = false;
+  clearTimeout(factTimer); factTimer = setTimeout(() => { $('fact').hidden = true; }, 12000);
+}
+function showFactOnce(key) { if (!FACTS[key] || seenFacts.has(key)) return; seenFacts.add(key); showFact(key, 'Wild fact'); }
 $('fact').addEventListener('pointerdown', () => { $('fact').hidden = true; });
 function flash(color, strength = 0.5) {
   const el = $('flash'); el.style.transition = 'none'; el.style.background = color; el.style.opacity = strength;
@@ -1998,11 +2034,12 @@ function catchPrey(p) {
   const T = PREY[p.type], kmh = F.mode === 'fly' ? F.speed * 3.6 : 0, stoop = !T.critter && kmh >= 200;
   const xp = T.xp * (stoop ? 2 : 1);
   burst(p.pos, p.vel, T.feathers, T.critter ? 12 : 36);
-  if (T.critter) showFactOnce(p.type); else if (p.type === 'crow') showFactOnce('crow');
+  showFactOnce(p.type);
   p.b.group.visible = true;
   p.state = 'carried'; F.carry = p;
   falcon.group.add(p.b.group);
-  p.b.group.position.set(0, -0.48, 0.05); p.b.group.rotation.set(0.25, 0, 0); p.b.group.scale.setScalar(p.b.scale / falcon.group.scale.x);
+  p.b.group.rotation.set(0.25, 0, 0); p.b.group.scale.setScalar(p.b.scale / falcon.group.scale.x);
+  p.size = null; placeCarry();
   animWings(p.b, { droop: 0.9 });
   stats()[p.type]++; if (stoop) stats().stoops++;
   sfx.kek(); whoosh(0.25, 500);
@@ -2010,6 +2047,31 @@ function catchPrey(p) {
   if (stoop) toast(`STOOP STRIKE! ${T.name} +${xp} XP`, 'big', 3000);
   else toast(`${T.name} caught! +${xp} XP`, 'gold');
   gainXP(xp);
+}
+// Carried prey hangs just below the talons in flight and lies in front of your feet on the ground.
+// Positions are worked out in metres, then converted into the bird's own (scaled) space.
+const carryBox = new THREE.Box3(), carrySize = new V3(), carryQ = new THREE.Quaternion(), carryE = new THREE.Euler();
+function placeCarry() {
+  const p = F.carry, s = falcon.group.scale.x;
+  p.b.group.scale.setScalar(p.b.scale / s);
+  if (!p.size) { falcon.group.updateMatrixWorld(true); carryBox.setFromObject(p.b.group, true).getSize(carrySize); p.size = { h: carrySize.y, len: Math.max(carrySize.x, carrySize.z) }; }
+  const o = LOOK[SP.look], bodyLen = o.realLen * growth(), belly = o.body[1] * 0.5 * s;
+  if (F.mode === 'fly') {
+    // hanging from the talons, just below the belly
+    p.b.group.position.set(0, -(belly + 0.05 + p.size.h * 0.5) / s, 0.05 * bodyLen / s);
+    p.b.group.rotation.set(0.15, 0, 0);
+  } else {
+    // lying on its side across the ground in front of your feet, resting exactly on the surface
+    const ahead = bodyLen * 0.35 + p.size.len * 0.3;
+    const gx = F.pos.x + Math.sin(F.yaw) * ahead, gz = F.pos.z + Math.cos(F.yaw) * ahead, gy = surfaceAt(gx, gz);
+    falcon.group.updateMatrixWorld(true);
+    carryQ.setFromEuler(carryE.set(0, F.yaw + Math.PI / 2, Math.PI / 2, 'YXZ'));
+    p.b.group.quaternion.copy(falcon.group.quaternion).invert().multiply(carryQ);
+    const wp = falcon.group.worldToLocal(tC.set(gx, gy, gz));
+    p.b.group.position.copy(wp); p.b.group.updateMatrixWorld(true);
+    const lift = gy - carryBox.setFromObject(p.b.group, true).min.y;
+    p.b.group.position.copy(falcon.group.worldToLocal(tC.set(gx, gy + lift, gz)));
+  }
 }
 function dropCarry() {
   const p = F.carry; if (!p) return;
@@ -2244,7 +2306,7 @@ function updateFlight(dt, inp) {
   // at the slowest gliding speed you can't keep climbing without flapping (no stall, the nose stays put)
   if (!flapping && !F.hovering && F.fwd.y > 0 && F.speed < 9) F.pos.y -= F.fwd.y * F.speed * dt * (1 - (F.speed - 7) / 2);
   // the air itself moves you: wind changes speed and direction with height
-  windAt(F.pos.y, F.wind); F.pos.addScaledVector(F.wind, F.hovering ? 0.15 * dt : dt);
+  windAt(F.pos.y, F.wind); F.pos.addScaledVector(F.wind, (F.hovering ? 0.15 : 0.8) * dt);
 
   tryCatch();
   if (checkCollisions()) return;
@@ -2372,7 +2434,7 @@ function poseFalcon(dt, inp) {
     else lx = 0.45 + Math.sin(game.t * 18) * 0.12;
     b.head.rotation.y = damp(b.head.rotation.y, ly, 4, dt); b.head.rotation.x = damp(b.head.rotation.x, lx, 6, dt);
   }
-  if (F.carry) { F.carry.b.group.position.y = flying ? -0.4 : -0.15; F.carry.b.group.position.z = flying ? 0.05 : 0.5; }
+  if (F.carry) placeCarry();
 }
 
 // menu: the falcon circles over the valley
@@ -2539,7 +2601,7 @@ function updateHUD() {
 
   // flight path marker and horizon line, so you can see where the nose is pointing
   const fpm = $('fpm'), hz = $('horizon');
-  fpm.hidden = !flying; hz.hidden = !flying;
+  fpm.hidden = !flying; hz.hidden = !flying || !settings.horizon;
   if (flying) {
     const p = project(tA.copy(F.pos).addScaledVector(F.fwd, 80));
     if (!p.behind) fpm.style.transform = `translate(${p.x}px,${p.y}px)`;
@@ -2549,7 +2611,7 @@ function updateHUD() {
     const yawC = Math.atan2(F.fwd.x, F.fwd.z);
     const h0 = project(tA.set(camera.position.x + Math.sin(yawC) * 1500, camera.position.y, camera.position.z + Math.cos(yawC) * 1500));
     const h1 = project(tB.set(camera.position.x + Math.sin(yawC) * 1500 + Math.cos(yawC) * 400, camera.position.y, camera.position.z + Math.cos(yawC) * 1500 - Math.sin(yawC) * 400));
-    if (!h0.behind && !h1.behind) { hz.hidden = false; hz.style.transform = `translate(${h0.x}px,${h0.y}px) rotate(${Math.atan2(h1.y - h0.y, h1.x - h0.x)}rad)`; }
+    if (!h0.behind && !h1.behind && settings.horizon) { hz.hidden = false; hz.style.transform = `translate(${h0.x}px,${h0.y}px) rotate(${Math.atan2(h1.y - h0.y, h1.x - h0.x)}rad)`; }
     else hz.hidden = true;
   }
 
@@ -2738,8 +2800,9 @@ function renderPause() {
     return `<div class="skill ${got ? 'got' : ''}"><small>${got ? 'Learned' : 'Unlocks at level ' + (LEVELS.indexOf(L) + 1)}</small><b>${S.name}</b><span>${S.desc}</span></div>`;
   }).join('');
   const tog = (id, label, on) => { $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on); };
-  tog('invertBtn', 'Invert up/down', settings.invert); tog('levelBtn', 'Auto-level', settings.autoLevel); tog('soundBtn', 'Sound', !settings.muted);
+  tog('invertBtn', 'Invert up/down', settings.invert); tog('levelBtn', 'Auto-level', settings.autoLevel); tog('soundBtn', 'Sound', !settings.muted); tog('horizonBtn', 'Horizon line', settings.horizon);
   renderSlots($('pauseSlots'), true);
+  $('tipsList').innerHTML = Object.values(TIPS).map(t => `<div class="skill"><span>${t}</span></div>`).join('');
 }
 function togglePause(force) {
   if (game.state !== 'play') return;
@@ -2790,6 +2853,7 @@ $('resumeBtn').addEventListener('click', () => togglePause(false));
 $('invertBtn').addEventListener('click', () => { settings.invert = !settings.invert; saveSettings(); renderPause(); });
 $('levelBtn').addEventListener('click', () => { settings.autoLevel = !settings.autoLevel; saveSettings(); renderPause(); });
 $('soundBtn').addEventListener('click', () => { settings.muted = !settings.muted; saveSettings(); renderPause(); });
+$('horizonBtn').addEventListener('click', () => { settings.horizon = !settings.horizon; saveSettings(); renderPause(); });
 $('camBtn').addEventListener('click', toggleCam);
 $('menuBtn').addEventListener('click', toMenu);
 $('keepBtn').addEventListener('click', () => { $('complete').hidden = true; game.paused = false; });
@@ -2815,6 +2879,7 @@ function tick() {
     F.hidden = (F.mode === 'perch' || F.mode === 'sleep') && F.perchType === 'tree';
     fwdOf(F.yaw, F.mode === 'fly' ? F.pitch : 0, F.fwd);
     updateNeeds(dt);
+    maybeTip(dt);
     poseFalcon(dt, inp);
     beacon.visible = !!F.carry;
     checkMissions();

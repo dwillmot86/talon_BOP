@@ -110,7 +110,7 @@ body.touch .g.wind b{font-size:17px}
 #fpm.down{color:#ffd28a}
 #fpm.up{color:#b8ecff}
 #horizon{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
-#horizon i{position:absolute;left:-120vw;width:240vw;top:0;border-top:1.5px dashed rgba(255,255,255,.38)}
+#horizon i{position:absolute;left:-120vw;width:240vw;top:0;border-top:1px dashed rgba(255,255,255,.22)}
 #flash{position:absolute;inset:0;opacity:0;transition:opacity .5s}
 #vignette{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(10,20,30,.55) 100%)}
 #hurt{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 50%,rgba(160,20,20,.5) 100%)}
@@ -300,6 +300,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
       <button id="invertBtn" class="ghost">Invert up/down: off</button>
       <button id="levelBtn" class="ghost">Auto-level: off</button>
       <button id="soundBtn" class="ghost">Sound: on</button>
+      <button id="horizonBtn" class="ghost">Horizon line: on</button>
       <button id="camBtn" class="ghost">View: behind</button>
     </div>
     <h2>Save and load</h2>
@@ -314,6 +315,8 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
     <div class="statgrid panel" id="statgrid"></div>
     <h2>Skills</h2>
     <div class="skills" id="skills"></div>
+    <h2>Flying tips</h2>
+    <div class="skills" id="tipsList"></div>
     <h2>Controls</h2>
     <div class="howto panel" id="howto2"></div>
     <div class="row">
