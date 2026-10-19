@@ -25,7 +25,7 @@ To rebuild both after editing `src/`:
 
 ## Play it
 
-- GitHub Pages: https://dwillmot86.github.io/talon_BOP/ (once Pages is switched on for this repository)
+- GitHub Pages: https://turchillytundra.github.io/talon_BOP/
 - Locally: open `docs/index.html` in a browser. It needs an internet connection to load Three.js and the fonts.
 
 ## Controls
