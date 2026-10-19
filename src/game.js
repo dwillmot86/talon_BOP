@@ -518,6 +518,7 @@ function featherGeo(len, w, top, under, bars) {
   const pts = [[0, w * .45], [len * .72, w * .5], [len, 0], [len * .72, -w * .5], [0, -w * .45]];
   return bladeGeo(pts, (n, m) => n.y < -0.5 ? under : bars && Math.floor(m.x / len * 6) % 2 === 1 ? bars : top, under, top, 0.012);
 }
+let BEND_K = 0.32;
 // add points between profile points so belly barring has enough rows
 const densify = pts => pts.flatMap((p, i) => i < pts.length - 1 ? [p, [(p[0] + pts[i + 1][0]) / 2, (p[1] + pts[i + 1][1]) / 2]] : [p]);
 // Stretch the wings so wingspan-to-length matches the real bird, then scale it to real size in metres.
@@ -588,6 +589,16 @@ function birdGeos(o) {
   const inner = mergeGeos([bladeGeo(o.inner, o.wing, o.under, o.tip), ...secs]).scale(k, 1, ch);
   const outer = mergeGeos([bladeGeo(o.outer, o.tip, o.under, o.tip), ...pris]).scale(k, 1, ch);
   inner.computeVertexNormals(); outer.computeVertexNormals();
+  // a curved copy of each wing (front and back edges bent inwards), blended in when the wing is folded
+  // so it wraps around the bird's side instead of lying flat like a board
+  const bend = (geo, k) => {
+    const P = geo.attributes.position, cur = new Float32Array(P.array);
+    let z0 = Infinity, z1 = -Infinity; for (let i = 0; i < P.count; i++) { z0 = Math.min(z0, P.getZ(i)); z1 = Math.max(z1, P.getZ(i)); }
+    const zc = (z0 + z1) / 2, half = (z1 - z0) / 2 || 1;
+    for (let i = 0; i < P.count; i++) { const u = (P.getZ(i) - zc) / half; cur[i * 3 + 1] -= k * half * u * u; }
+    geo.morphAttributes.position = [new THREE.BufferAttribute(cur, 3)];
+  };
+  bend(inner, BEND_K); bend(outer, BEND_K * 0.6);
   // tail: a fan of separate feathers
   const tailLen = Math.max(...o.tail.map(p => -p[1])), nTail = o.tailFeathers ?? 7, tw = Math.max(...o.tail.map(p => Math.abs(p[0])));
   const tailFs = [...Array(nTail)].map((_, i) => {
@@ -607,7 +618,7 @@ function birdGeos(o) {
 function makeBird(o) {
   const G = birdGeos(o), g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
   const [bx, by, bz] = o.body;
-  g.add(M(G.body));
+  const body = M(G.body); g.add(body);
   const head = new THREE.Group(); head.position.set(0, o.headY, o.headZ); g.add(head);
   head.add(M(G.head));
   const tail = new THREE.Group(); tail.position.set(0, 0, -bz * .4); tail.add(M(G.tail)); g.add(tail);
@@ -617,7 +628,7 @@ function makeBird(o) {
     const inner = M(G.inner); root.add(inner);
     const elbow = new THREE.Group(); elbow.position.x = o.span * fitBird(o).stretch; root.add(elbow);
     const outer = M(G.outer); elbow.add(outer);
-    wings.push({ root, elbow, inner, outer, ex: elbow.position.x });
+    wings.push({ root, elbow, inner, outer, ex: elbow.position.x, rx: root.position.x });
   };
   mkWing(g);
   const mirror = new THREE.Group(); mirror.scale.x = -1; g.add(mirror); mkWing(mirror);
@@ -628,11 +639,13 @@ function makeBird(o) {
   const sc = fitBird(o).scale;
   g.scale.setScalar(sc);
   g.traverse(m => { if (m.isMesh) m.castShadow = true; });
-  return { group: g, wings, head, tail, legs, scale: sc, span: o.realSpan, leg: (by * 0.35 + 0.3) * sc };
+  return { group: g, body, wings, head, tail, legs, scale: sc, span: o.realSpan, leg: (by * 0.35 + 0.3) * sc };
 }
 // Natural wingbeat: the outer wing folds back on the upstroke and stretches out on the downstroke.
 function animWings(b, { ph = 0, amp = 0, tuck = 0, dihedral = 0, flare = 0, droop = 0, fold = 0 } = {}) {
   const s = Math.sin(ph), up = Math.max(0, Math.cos(ph)), open = 1 - tuck;
+  // resting birds fluff their feathers out, so they look rounder and bigger than in flight
+  if (b.body) b.body.scale.set(1 + 0.16 * fold, 1 + 0.12 * fold, 1 + 0.03 * fold);
   for (const w of b.wings) {
     w.root.rotation.z = (amp * s + dihedral + flare * 0.45) * open - tuck * 0.18 - droop;
     w.root.rotation.y = tuck * 1.05 - flare * 0.45 * open + amp * up * 0.15 * open;
@@ -649,6 +662,8 @@ function animWings(b, { ph = 0, amp = 0, tuck = 0, dihedral = 0, flare = 0, droo
       w.inner.scale.set(lerp(1, 0.38, fold), 1, lerp(1, 0.55, fold));
       w.outer.scale.set(1, 1, lerp(1, 0.6, fold));
       w.elbow.position.x = w.ex * lerp(1, 0.38, fold);
+      w.root.position.x = w.rx * (1 + 0.45 * fold);
+      w.inner.morphTargetInfluences[0] = w.outer.morphTargetInfluences[0] = fold;
     }
   }
 }
@@ -763,7 +778,7 @@ const SPECIES = {
     diet: { grouse: 1, pigeon: 1, teal: 1, crow: 1, finch: .8, shrew: 1, eel: 1, fish: .3, hare: .1, carrion: .6 } },
   eagle: { lookLimit: 1.6, look: 'eagle', name: 'Golden Eagle', plural: 'Golden eagles', drag: .0013, tuckDrag: .0016, arrowDrag: .0013, thrust: 1.75, lift: 2.8, turn: 1.4, energy: 140, flapCost: 6, maxSpeed: 90, thermal: 1.3, ability: 'sight', start: 7,
     diet: { grouse: 1.15, hare: 1.2, crow: .9, teal: .8, pigeon: .7, shrew: .9, fish: .6, eel: .7, carrion: 1, finch: .3 } },
-  owl: { lookLimit: 2.35, look: 'owl', name: 'Barn Owl', plural: 'Barn owls', drag: .0024, tuckDrag: .0035, arrowDrag: .003, thrust: 1.75, lift: 3, turn: 2.4, energy: 90, flapCost: 4, maxSpeed: 60, thermal: .8, ability: 'listen', nocturnal: true, silent: true, start: 19.5,
+  owl: { lookLimit: 4.71, look: 'owl', name: 'Barn Owl', plural: 'Barn owls', drag: .0024, tuckDrag: .0035, arrowDrag: .003, thrust: 1.75, lift: 3, turn: 2.4, energy: 90, flapCost: 4, maxSpeed: 60, thermal: .8, ability: 'listen', nocturnal: true, silent: true, start: 19.5,
     diet: { grouse: .2, shrew: 1.25, finch: .6, pigeon: .4, teal: .2, crow: .2, eel: .3, fish: .2, hare: .1, carrion: .5 } },
   osprey: { lookLimit: 1.6, look: 'osprey', name: 'Osprey', plural: 'Ospreys', drag: .0017, tuckDrag: .0014, arrowDrag: .0012, thrust: 1.88, lift: 2.8, turn: 1.7, energy: 110, flapCost: 5, maxSpeed: 90, thermal: 1, ability: 'hover', start: 7,
     diet: { grouse: .1, fish: 1.3, eel: 1.2, pigeon: .15, teal: .15, crow: .1, finch: .1, shrew: .15, hare: .05, carrion: .1 } },
