@@ -542,8 +542,19 @@ function birdGeos(o) {
       if (n.y < 0.1 && n.y >= -0.3) return shade(o.back, 0.05);
       return o.mantle && n.y > 0.6 && m.z > -bz * 0.1 ? o.mantle : o.back;
     });
-  // the head and everything on it become one mesh
+  // a thick neck that flows from the chest up into the head, so the head isn't a ball on a stick
   const hs = o.headShape || [1, 0.92, 1.18], hz = hs[2], bl = o.beakLen || 0.95;
+  const prof = o.profile, profR = zn => { for (let i = 1; i < prof.length; i++) if (prof[i][1] >= zn) { const [a0, b0] = prof[i - 1], [a1, b1] = prof[i]; return a0 + (a1 - a0) * (zn - b0) / ((b1 - b0) || 1); } return 0; };
+  const nz0 = bz * 0.22, nr0 = profR(0.22) * 0.98, nz1 = o.headZ - r * 0.2;
+  const neckG = new THREE.CylinderGeometry(1, 1, 1, 8, 3, true).rotateX(Math.PI / 2);
+  { const NP = neckG.attributes.position;
+    for (let i = 0; i < NP.count; i++) {
+      const t = NP.getZ(i) + 0.5, e = t * t * (3 - 2 * t);
+      NP.setXYZ(i, NP.getX(i) * lerp(bx * nr0, r * 0.82 * hs[0], e), NP.getY(i) * lerp(by * nr0, r * 0.8 * hs[1], e) + lerp(by * 0.06, o.headY - r * 0.12, e), lerp(nz0, nz1, t));
+    } }
+  const neck = facet(neckG, (n, m) => n.y < -0.25 ? (o.cheek || o.belly) : m.z > (nz0 + nz1) * 0.55 ? (o.nape || o.head) : (o.mantle || o.back));
+  const bodyAll = mergeGeos([body, neck]);
+  // the head and everything on it become one mesh
   const skull = facet(new THREE.IcosahedronGeometry(r, 1).scale(...hs),
     (n, m) => o.face && n.z > 0.3 ? o.face : o.cheek && n.y < -0.15 && m.z > -r * 0.2 ? o.cheek : o.nape && m.z < -r * 0.3 && n.y > 0 ? o.nape : o.head, 0.06);
   const beakG = facet(new THREE.ConeGeometry(r * (o.beakW || .34), r * bl, 5).rotateX(Math.PI / 2), (n, m) => m.z > r * bl * 0.2 && o.beakTip ? o.beakTip : o.beak, 0.05);
@@ -591,7 +602,7 @@ function birdGeos(o) {
     place(facet(new THREE.OctahedronGeometry(1, 0).scale(.05, .03, .08), () => legC), 0, -.21, .03),
     ...[-.03, 0, .03].map(tx => place(facet(new THREE.ConeGeometry(.012, .05, 3).rotateX(Math.PI / 2 + 0.6), () => 0x1a1a1a, 0), tx, -.22, .1)),
   ]);
-  return (o._geo = { body, head, tail, inner, outer, legOne });
+  return (o._geo = { body: bodyAll, head, tail, inner, outer, legOne });
 }
 function makeBird(o) {
   const G = birdGeos(o), g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
@@ -603,10 +614,10 @@ function makeBird(o) {
   const wings = [];
   const mkWing = parent => {
     const root = new THREE.Group(); root.rotation.order = 'ZYX'; root.position.set(bx * .3, by * .22, o.wingZ); parent.add(root);
-    root.add(M(G.inner));
+    const inner = M(G.inner); root.add(inner);
     const elbow = new THREE.Group(); elbow.position.x = o.span * fitBird(o).stretch; root.add(elbow);
-    elbow.add(M(G.outer));
-    wings.push({ root, elbow });
+    const outer = M(G.outer); elbow.add(outer);
+    wings.push({ root, elbow, inner, outer, ex: elbow.position.x });
   };
   mkWing(g);
   const mirror = new THREE.Group(); mirror.scale.x = -1; g.add(mirror); mkWing(mirror);
@@ -629,9 +640,15 @@ function animWings(b, { ph = 0, amp = 0, tuck = 0, dihedral = 0, flare = 0, droo
     w.elbow.rotation.y = tuck * 1.55 + amp * up * 0.7 * open;
     // folded at rest: the wing swings back, then turns down to lie flat against the bird's side,
     // with the wingtips crossing over the tail
+    // The arm and forearm fold up in a Z under the coverts, so the inner wing gets much shorter and narrower.
     if (fold) {
-      w.root.rotation.set(0, lerp(w.root.rotation.y, 1.3, fold), lerp(w.root.rotation.z, -1.38, fold));
-      w.elbow.rotation.set(0, lerp(w.elbow.rotation.y, 0.25, fold), lerp(w.elbow.rotation.z, 0.08, fold));
+      w.root.rotation.set(0, lerp(w.root.rotation.y, 1.35, fold), lerp(w.root.rotation.z, -1.4, fold));
+      w.elbow.rotation.set(0, lerp(w.elbow.rotation.y, 0.12, fold), lerp(w.elbow.rotation.z, 0.06, fold));
+    }
+    if (w.inner) {
+      w.inner.scale.set(lerp(1, 0.38, fold), 1, lerp(1, 0.55, fold));
+      w.outer.scale.set(1, 1, lerp(1, 0.6, fold));
+      w.elbow.position.x = w.ex * lerp(1, 0.38, fold);
     }
   }
 }
@@ -841,7 +858,9 @@ function buildNest(id, x, y, z, { scale = 1.3, rocks = false, rags = false, perc
   if (rags) for (let i = 0; i < 4; i++) { const r = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.35), toon([0xf2f2f2, 0x4a7fc0, 0xe0c040, 0xd04040][i], { side: THREE.DoubleSide })); r.position.set(Math.cos(i * 1.6) * 1.6, 0.7, Math.sin(i * 1.6) * 1.6); r.rotation.set(rand(), rand() * 6, rand()); g.add(r); }
   const fluff = new THREE.IcosahedronGeometry(0.5, 0), fluffM = toon(0xfbf8f1), beakM = toon(owlets ? 0xe6d3b0 : 0x30343b), eyeM = toon(0x0d0d0d);
   for (let i = 0; i < chicksN; i++) {
-    const c = new THREE.Group(); c.position.set((i - 1) * 0.75, 0.7, (i % 2) * 0.4 - 0.2); c.rotation.y = Math.PI / 2 + (i - 1) * 0.4;
+    // downy chicks stand about a quarter as tall as their parent is long
+    const k = 0.28 * LOOK[SPECIES[id].look].realLen / scale, gap = Math.min(0.75, k * 0.95);
+    const c = new THREE.Group(); c.scale.setScalar(k); c.position.set((i - (chicksN - 1) / 2) * gap, 0.55 + 0.3 * k, (i % 2) * gap * 0.5 - gap * 0.25); c.rotation.y = Math.PI / 2 + (i - 1) * 0.4;
     const b = new THREE.Mesh(fluff, fluffM); b.scale.set(.75, .7, .75); c.add(b);
     const hd = new THREE.Group(); hd.position.set(0, .5, .18); c.add(hd);
     const hm = new THREE.Mesh(fluff, fluffM); hm.scale.setScalar(owlets ? .55 : .45); hd.add(hm);
