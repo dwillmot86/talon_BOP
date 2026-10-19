@@ -1016,7 +1016,7 @@ function updateTime(dt) {
   if (TOD.hour >= 24) { TOD.hour -= 24; TOD.day++; }
   if (game.state === 'play') {
     if (before < 20 && TOD.hour >= 20) toast(SP.nocturnal ? 'Night has fallen. Time to hunt!' : 'Night is falling. Find a safe place to sleep: a tree or your nest.', 'gold', 4500);
-    if (before < 6 && TOD.hour >= 6 && F.mode !== 'sleep') toast(SP.nocturnal ? 'Dawn. Find your barn or a tree and sleep through the day.' : 'Dawn. Time to hunt!', 'gold', 4500);
+    if (before < 6 && TOD.hour >= 6 && F.mode !== 'sleep') toast(SP.nocturnal ? 'Dawn. Go back to your nest or find a tree and sleep through the day.' : 'Dawn. Time to hunt!', 'gold', 4500);
   }
   const a = (TOD.hour - 6) / 12 * Math.PI;
   SUN_DIR.set(Math.cos(a) * 0.85, Math.sin(a), 0.35).normalize();
@@ -1076,17 +1076,18 @@ const FACTS = {
   thermal: 'Birds of prey ride thermals, columns of warm rising air, to climb high without flapping. It saves a lot of energy.',
   landing: 'Before landing, birds of prey "flare": they spread their wings and tail wide like air brakes and swing their feet forward.',
   stoop: 'Peregrines are the fastest animals on Earth. In a hunting dive, called a stoop, they have been measured at over 320 km/h (200 mph).',
-  pigeon: 'Pigeons are one of the peregrine\'s favourite foods in Britain. Peregrines almost always catch other birds in mid-air.',
+  pigeon: 'Wood pigeons are Britain\'s commonest pigeons. They are a favourite food of peregrines and sparrowhawks, which catch them in mid-air.',
   chicks: 'Peregrine chicks are called eyasses. They hatch covered in fluffy white down and make their first flight at about six weeks old.',
-  drink: 'Peregrines get most of their water from their prey, but they do drink and bathe in streams and pools, especially in hot weather.',
+  drink: 'Birds of prey get most of their water from their food, but they do drink and bathe in streams and pools, especially in hot weather.',
   talons: 'A peregrine hits its prey with its feet balled up like a fist, then grabs with its talons. A notch on its beak, the "tomial tooth", finishes the job quickly.',
-  sleep: 'Peregrines hunt by day. At night they roost somewhere sheltered, like a cliff ledge, a tall building or a tree, often close to their nest.',
+  sleep: 'Birds of prey that hunt by day roost at night somewhere sheltered and high up, like a cliff ledge, a tall building or a tree, often close to their nest.',
+  hChicks: 'Sparrowhawks lay four or five eggs in a twiggy nest high in a tree. The chicks are ready to fly at about four weeks old.',
   ddt: 'In the 1960s British peregrines nearly disappeared because of a pesticide called DDT. After it was banned they recovered, and today some even nest on cathedrals, like Salisbury and Norwich.',
   tiercel: 'Female peregrines are about a third bigger than males. A male is called a tiercel, from an old word meaning "a third".',
   eagle: 'Golden eagles are one of Britain\'s biggest birds of prey, with wings over 2 m across. They live mostly in the Scottish Highlands and will attack other raptors.',
   crow: 'Crows often "mob" birds of prey, calling loudly and diving at them to chase them off, but they rarely hurt them. Peregrines do sometimes catch crows and jackdaws to eat.',
   shrew: 'Shrews have smelly glands that put off foxes and cats, but birds of prey have a poor sense of smell, so owls and hawks eat them happily.',
-  eel: 'In real life peregrines very rarely catch fish. Snatching eels and fish from the water is really the osprey\'s job: ospreys have spiky pads on their feet to grip slippery prey.',
+  eel: 'Eels are long, slippery fish that can even wriggle across wet grass. Ospreys have spiky pads on their feet to grip slippery prey like eels.',
   teal: 'Teal are Britain\'s smallest ducks. When danger comes they spring straight up off the water, which is why a group of teal is called a "spring".',
   grouse: 'Red grouse live on heather moors. They crouch hidden until danger is close, then burst up with a whirr of wings, calling "go-back, go-back".',
   hare: 'Mountain hares can run at over 60 km/h and zigzag sharply to escape. Their fur turns white in winter.',
@@ -1242,7 +1243,7 @@ const MISSION_SETS = {
     { title: 'Burst of speed', text: () => `Press ${KEY.skill} for a sudden burst of speed.`, done: s => s.bursts >= 1, fact: 'hAmbush' },
     { title: 'Ambush', text: () => 'Catch a chaffinch. Burst out from the trees to surprise one.', done: s => s.finch >= 1, fact: 'hGarden' },
     { title: 'Through the trees', text: () => `Fly low through the woods faster than ${spd(50)} for 5 seconds, weaving between the trees.`, done: s => s.woodsTime >= 5, fact: 'hWoods' },
-    Q.feed('chicks'),
+    Q.feed('hChicks'),
     { title: 'Pigeon hunter', text: () => 'Catch a wood pigeon, a big meal for a sparrowhawk.', done: s => s.pigeon >= 1, fact: 'hSize' },
     Q.master('Master of the Woods', 'sleep'),
   ],
@@ -1814,11 +1815,11 @@ function updateEagle(dt) {
     steer(E, tA, 31, 2.2, dt);
     if (d < 3.6 && F.mode === 'fly') {
       injure(40, `The ${THREAT.name} struck you!`);
-      if (F.carry) { toast('The eagle stole your prey!', 'bad'); dropCarry(); }
+      if (F.carry) { toast(`The ${THREAT.name} stole your prey!`, 'bad'); dropCarry(); }
       F.speed = 10; F.pitch = -0.3; E.state = 'leave'; E.cool = 90;
     } else if (!exposed || E.huntT > 25 || d > 450) {
       E.state = 'leave'; E.cool = 45;
-      if (playing && d < 450) toast('The eagle gave up the chase.', 'gold');
+      if (playing && d < 450) toast(`The ${THREAT.name} gave up the chase.`, 'gold');
     }
   } else {
     steer(E, E.center, 18, 1, dt);
@@ -2198,16 +2199,16 @@ const TIPS = {
   climb: 'To climb high without using energy, find a thermal (swirling golden dust) and circle inside it.',
 };
 const HUNT_TIPS = {
-  peregrine: 'Peregrines hunt from high up. Climb above your prey, then hold Shift to stoop down onto it from above or behind.',
-  eagle: 'Golden eagles hunt low and sneaky: glide just above the hillside, then drop onto hares and grouse before they can run. Come in at a medium speed, and use Keen sight (Q) to spot them. Dead rabbits are an easy meal too.',
-  owl: 'Barn owls hunt by sound. Fly slowly and low over the fields while holding Q to listen, then swoop on whatever you hear rustling.',
-  osprey: 'Ospreys fish. Hover (hold Q) over the river until you see a trout, then let go and dive feet-first into the water.',
-  kite: 'Red kites are scavengers. Press Q to scan for dead rabbits, then glide down slowly to pick one up.',
-  hawk: 'Sparrowhawks ambush small birds. Fly low through the woods to stay hidden, then burst (Q) out at a flock of chaffinches.',
-  harpy: 'Harpy eagles hunt in the treetops. Press Q to spot monkeys and sloths, then skim in low over the canopy and grab them. Monkeys see you if you come in high: stay low.',
-  batfalcon: 'Bat falcons are fast little hunters. Climb high and stoop on parakeets over the trees. At dusk, bats come out over the river: chase them down!',
-  snowyowl: 'Snowy owls hunt by sound and sight. Hold Q to listen for lemmings, then glide in low and slow to pounce. Ptarmigan sit still until you get close.',
-  gyr: 'Gyrfalcons chase prey low over the ground. Fly close to ptarmigan to flush them, then chase hard and strike from behind.',
+  peregrine: `Peregrines hunt from high up. Climb above your prey, then hold ${KEY.dive} to stoop down onto it from above or behind.`,
+  eagle: `Golden eagles hunt low and sneaky: glide just above the hillside, then drop onto hares and grouse before they can run. Come in at a medium speed, and use Keen sight (${KEY.skill}) to spot them. Dead rabbits are an easy meal too.`,
+  owl: `Barn owls hunt by sound. Fly slowly and low over the fields while holding ${KEY.skill} to listen, then swoop on whatever you hear rustling.`,
+  osprey: `Ospreys fish. Hover (hold ${KEY.skill}) over the river until you see a trout, then let go and dive feet-first into the water.`,
+  kite: `Red kites are scavengers. Press ${KEY.skill} to scan for dead rabbits, then glide down slowly to pick one up.`,
+  hawk: `Sparrowhawks ambush small birds. Fly low through the woods to stay hidden, then burst (${KEY.skill}) out at a flock of chaffinches.`,
+  harpy: `Harpy eagles hunt in the treetops. Press ${KEY.skill} to spot monkeys and sloths, then skim in low over the canopy and grab them. Monkeys see you if you come in high: stay low.`,
+  batfalcon: `Bat falcons are fast little hunters. Climb high and stoop on parakeets over the trees. At dusk, bats come out over the river: chase them down!`,
+  snowyowl: `Snowy owls hunt by sound and sight. Hold ${KEY.skill} to listen for lemmings, then glide in low and slow to pounce. Ptarmigan sit still until you get close.`,
+  gyr: `Gyrfalcons chase prey low over the ground. Fly close to ptarmigan to flush them, then chase hard and strike from behind.`,
 };
 const tipSeen = {};
 let tipCool = 20, slowT = 0, flapT = 0;
@@ -2329,7 +2330,7 @@ function strikeOdds(p) {
       c = 0.6; why = `The ${PREY.fish.name.toLowerCase()} slipped back into the deep water.`;
     } else if (p.type === 'shrew') {
       c = kmh < 15 ? 0.5 : kmh < 90 ? 0.82 : kmh < 140 ? 0.45 : 0.2;
-      why = kmh >= 90 ? 'Too fast! You overshot the shrew. Swoop in slower.' : 'The shrew darted into the grass!';
+      why = kmh >= 90 ? `Too fast! You overshot the ${PREY.shrew.name.toLowerCase()}. Swoop in slower.` : `The ${PREY.shrew.name.toLowerCase()} darted into cover!`;
       if (p.fleeT > 0) c -= 0.12;
     } else {
       c = kmh < 90 ? 0.75 : 0.3;
@@ -2356,10 +2357,11 @@ function strikeOdds(p) {
   return dietOdds(p, c, why);
 }
 // what each bird is built to catch
+const plural = n => /s$|leftovers|char$|bass$|caribou$/.test(n) ? n : n + 's';
 function dietOdds(p, c, why) {
   const diet = SP.diet[p.type] ?? 1;
   if (has('talons')) c += 0.06;
-  if (diet < 0.2) why = spId === 'osprey' ? 'Ospreys only really eat fish!' : `${SP.plural} don't really hunt ${PREY[p.type].name.toLowerCase()}s. Too ${p.type === 'hare' ? 'big' : 'tricky'} for you!`;
+  if (diet < 0.2) why = spId === 'osprey' ? 'Ospreys only really eat fish!' : `${SP.plural} don't really hunt ${plural(PREY[p.type].name.toLowerCase())}. Too ${p.type === 'hare' ? 'big' : 'tricky'} for you!`;
   return { chance: clamp(c * diet, 0.03, 0.97), why };
 }
 function tryCatch() {
@@ -2483,7 +2485,7 @@ function pounce() {
   const p = shrewInReach(); if (!p) return;
   F.yaw = Math.atan2(p.pos.x - F.pos.x, p.pos.z - F.pos.z); F.pos.x = lerp(F.pos.x, p.pos.x, 0.6); F.pos.z = lerp(F.pos.z, p.pos.z, 0.6);
   if (rand() < (p.fleeT > 0 ? 0.55 : 0.8)) catchPrey(p);
-  else { hideCritter(p, 6 + rand() * 6, false); stats().misses++; sfx.miss(); toast('Missed! The shrew escaped into the grass.', 'bad'); }
+  else { hideCritter(p, 6 + rand() * 6, false); stats().misses++; sfx.miss(); toast(`Missed! The ${PREY.shrew.name.toLowerCase()} escaped into cover.`, 'bad'); }
 }
 function drink() {
   F.water = 100; F.drinkT = 1.6; stats().drinks++;
@@ -2526,7 +2528,7 @@ function landGround(soft) {
   stats().landings++;
   if (soft) {
     const c = colliderAt(F.pos.x, F.pos.z);
-    toast(c ? `Landed on the ${c.name}.` : 'Landed. Watch out for foxes on the ground!', 'gold');
+    toast(c ? `Landed on the ${c.name}.` : `Landed. Watch out for ${PRED.name === 'fox' ? 'foxes' : PRED.name + 's'} on the ground!`, 'gold');
     whoosh(0.15, 600);
   }
 }
@@ -2578,7 +2580,8 @@ function checkCollisions() {
       F.pos.y = 1.4; F.pitch = 0.45; F.speed = Math.max(F.speed * 0.5, 11); F.energy = Math.max(0, F.energy - 10);
       burst(F.pos, tA.set(0, 6, 0), [0xcfe8f5, 0xffffff, 0x9fd0ec], 18, 0); sfx.splash();
       if (kmh > 130) injure(15, 'Splash! You hit the water hard.');
-      else toast('Splash! Peregrines can\'t swim. Land on the bank.', 'bad');
+      else if (spId === 'osprey') toast(`Splash! To fish, hover over a fish shadow, then dive steeply, feet first.`, 'bad');
+      else toast(`Splash! ${SP.plural} can't swim. Land on the bank.`, 'bad');
       return false;
     }
     const steep = F.pitch < -0.45;
@@ -2694,7 +2697,7 @@ function updateFlight(dt, inp) {
   const r = Math.hypot(F.pos.x, F.pos.z);
   if (r > LIMIT) {
     F.yaw += clamp(wrapAngle(Math.atan2(-F.pos.x, -F.pos.z) - F.yaw), -1.2 * dt, 1.2 * dt);
-    if (!F.edgeWarned) { toast('The valley ends here. Turn back!', 'bad'); F.edgeWarned = true; }
+    if (!F.edgeWarned) { toast(`This is the edge of the ${WORLDS[BIOME].name}. Turn back!`, 'bad'); F.edgeWarned = true; }
   } else if (r < LIMIT - 80) F.edgeWarned = false;
 
   const kmh = F.speed * 3.6;
@@ -2987,7 +2990,7 @@ function updateHUD() {
   const act = actionLabel();
   if (F.mode === 'ground') pr = F.stunT > 0 ? 'Stunned…' : `Walk slowly with <b>${isTouch ? 'the stick' : 'W A S D'}</b>. <b>${KEY.fly}</b> to take off.` + (act === 'DRINK' ? ` <b>${KEY.act}</b> to drink.` : act === 'POUNCE' ? ` <b>${KEY.act}</b> to pounce on the shrew!` : '');
   else if (F.mode === 'perch') pr = `<b>${KEY.fly}</b> to take off. <b>${KEY.sleep}</b> to sleep.`;
-  if (F.carry && F.mode !== 'sleep') pr = `Carrying a <b>${PREY[F.carry.type].name.toLowerCase()}</b>. Take it to the eyrie, or <b>${KEY.act}</b> to eat it.` + (flying ? '' : ` <b>${KEY.fly}</b> to take off.`);
+  if (F.carry && F.mode !== 'sleep') pr = `Carrying a <b>${PREY[F.carry.type].name.toLowerCase()}</b>. Take it to your nest, or <b>${KEY.act}</b> to eat it.` + (flying ? '' : ` <b>${KEY.fly}</b> to take off.`);
   if (pr !== lastPrompt) { lastPrompt = pr; $('prompt').innerHTML = pr; $('prompt').hidden = !pr; }
   if (act !== lastAct) { lastAct = act; $('bAct').textContent = act; $('bAct').hidden = !act; }
   const fl = flying ? 'FLAP' : 'TAKE OFF';
