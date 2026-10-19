@@ -27,13 +27,41 @@ function vnoise(x, z) {
 function fbm(x, z, o = 5) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < o; i++) { s += a * vnoise(x * f, z * f); n += a; a *= 0.5; f *= 2.03; } return s / n; }
 const tA = new V3(), tB = new V3(), tC = new V3(), pv = new V3();
 
+// ---------- which world ----------
+// Each world is built once when the game loads; switching worlds reloads the page into the other world.
+const WORLDS = {
+  valley: { name: 'British Valley', blurb: 'Fields, woods, moors and cliffs, with a river winding through a village.', unlock: 0 },
+  rainforest: { name: 'Rainforest', blurb: 'A steaming jungle river, giant trees, an ancient temple and a flat-topped mountain with a waterfall.', unlock: 3 },
+  arctic: { name: 'Arctic Tundra', blurb: 'Open tundra, icy lakes, glaciers and caribou herds, with the northern lights at night.', unlock: 4 },
+};
+const BIOME = (() => {
+  const h = (location.hash || '').match(/world-(\w+)/);
+  let id = h && h[1];
+  if (!WORLDS[id]) { try { id = localStorage.getItem('talon-world'); } catch (e) { } }
+  return WORLDS[id] ? id : 'valley';
+})();
+function switchWorld(id) {
+  try { localStorage.setItem('talon-world', id); } catch (e) { }
+  location.hash = 'world-' + id;
+  location.reload();
+}
+
 // ---------- world shape ----------
 const WORLD = 3200, LIMIT = 1050;
 const THIN_AIR = 450;           // above this height (sea level) the air is too thin and energy drains
-const riverX = z => 160 * Math.sin(z * 0.0026) + 60 * Math.sin(z * 0.007 + 1.3);
+const riverX = BIOME === 'rainforest' ? z => 260 * Math.sin(z * 0.0016 + 0.5) + 90 * Math.sin(z * 0.0055)
+  : BIOME === 'arctic' ? z => 120 * Math.sin(z * 0.002 + 1) + 40 * Math.sin(z * 0.008)
+  : z => 160 * Math.sin(z * 0.0026) + 60 * Math.sin(z * 0.007 + 1.3);
 const CLIFF = 330;
-const VZ = 260, VX = riverX(260) + 150;
+// the "village" spot: the church, the temple or the research hut
+const VZ = BIOME === 'rainforest' ? 320 : BIOME === 'arctic' ? -200 : 260;
+const VX = riverX(VZ) + (BIOME === 'rainforest' ? 190 : BIOME === 'arctic' ? 140 : 150);
+// rainforest: a flat-topped mountain (tepui) with a waterfall; arctic: a rocky crag for the gyrfalcon
+const TEPUI = { x: -620, z: -350, r: 230 };
+const CRAG = { x: -430, z: 330 };
 function heightAt(x, z) {
+  if (BIOME === 'rainforest') return rainforestHeight(x, z);
+  if (BIOME === 'arctic') return arcticHeight(x, z);
   const rx = riverX(z), d = Math.abs(x - rx);
   const n = fbm(x * 0.0035 + 10, z * 0.0035 - 5);
   let h = -6 + 14 * smooth(8, 60, d) + Math.pow(n, 1.6) * 230 * smooth(60, 520, d);
@@ -45,6 +73,29 @@ function heightAt(x, z) {
   h = lerp(h, 9, smooth(140, 60, dv));
   return h;
 }
+function rainforestHeight(x, z) {
+  const rx = riverX(z), d = Math.abs(x - rx);
+  const n = fbm(x * 0.004 + 3, z * 0.004 + 9);
+  let h = -5 + 12 * smooth(15, 110, d) + Math.pow(n, 1.3) * 110 * smooth(100, 500, d);
+  const dt = Math.hypot(x - TEPUI.x, z - TEPUI.z);
+  h = Math.max(h, smooth(TEPUI.r + 30, TEPUI.r - 10, dt) * (240 + 20 * fbm(x * 0.02, z * 0.02, 2)));
+  const ol = Math.hypot(x - (riverX(-650) + 190), z + 650);                // an oxbow lake
+  h = lerp(h, -4, smooth(95, 55, ol));
+  const r = Math.hypot(x, z);
+  h += smooth(850, 1250, r) * 200 * fbm(x * 0.004, z * 0.004, 3);
+  return lerp(h, 14, smooth(110, 60, Math.hypot(x - VX, z - VZ)));
+}
+function arcticHeight(x, z) {
+  const rx = riverX(z), d = Math.abs(x - rx);
+  let h = -4 + 10 * smooth(8, 45, d) + fbm(x * 0.005 + 20, z * 0.005, 4) * 40 * smooth(40, 300, d);
+  const lake = fbm(x * 0.004 + 50, z * 0.004 - 30, 3);                     // icy lakes scattered over the tundra
+  if (lake > 0.6) h -= (lake - 0.6) * 160 * smooth(40, 120, d);
+  h += Math.pow(fbm(x * 0.006 - 40, z * 0.006 + 12, 3), 3) * 170;          // rocky hills
+  h += smooth(150, 30, Math.hypot(x - CRAG.x, z - CRAG.z)) * 130;           // the gyrfalcon's crag
+  const r = Math.hypot(x, z);
+  h += smooth(700, 1150, r) * 380 * fbm(x * 0.004, z * 0.004, 3);           // glaciers around the edge
+  return lerp(h, 8, smooth(90, 45, Math.hypot(x - VX, z - VZ)));
+}
 let groundAt = (x, z) => Math.max(heightAt(x, z), 0);
 const slopeAt = (x, z) => { const e = 3; return tC.set(heightAt(x - e, z) - heightAt(x + e, z), 2 * e, heightAt(x, z - e) - heightAt(x, z + e)).normalize().y; };
 
@@ -55,7 +106,7 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = !isTouch;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xd3e9ef, 260, 1650);
+scene.fog = new THREE.Fog(0xd3e9ef, BIOME === 'rainforest' ? 160 : 260, BIOME === 'rainforest' ? 1250 : 1650);
 const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 6000);
 scene.add(camera);
 
@@ -110,6 +161,19 @@ const SEG = 260;
 const tGeo = new THREE.PlaneGeometry(WORLD, WORLD, SEG, SEG);
 tGeo.rotateX(-Math.PI / 2);
 function terrainColor(x, z, h, ny, out) {
+  if (BIOME === 'rainforest') {
+    const C = terrainColor.R || (terrainColor.R = { bed: new THREE.Color(0x5a4a2c), mud: new THREE.Color(0xa2845a), floor: new THREE.Color(0x2f6b2a), moss: new THREE.Color(0x4a8a34), stone: new THREE.Color(0x9a6a4a), high: new THREE.Color(0x5a8a3c) });
+    if (h < 1.3) return out.copy(h < -1.5 ? C.bed : C.mud);
+    if (ny < 0.7) return out.copy(C.stone).lerp(C.floor, fbm(x * .03, z * .03, 2) * 0.35);   // red sandstone cliffs
+    return out.copy(C.floor).lerp(h > 200 ? C.high : C.moss, fbm(x * .015, z * .015, 2) * 0.8);
+  }
+  if (BIOME === 'arctic') {
+    const C = terrainColor.A || (terrainColor.A = { bed: new THREE.Color(0x5a6a70), shore: new THREE.Color(0x9a968a), tundra: [0x8a8a5a, 0xa89a6a, 0x7a8a6a, 0x9a6a5a].map(v => new THREE.Color(v)), rock: new THREE.Color(0x7f8288), snow: new THREE.Color(0xf2f6f8) });
+    if (h < 1.3) return out.copy(h < -1.5 ? C.bed : C.shore);
+    if (ny < 0.72) return out.copy(C.rock);
+    if (h > 190 || fbm(x * 0.01 + 7, z * 0.01, 3) > 0.64) return out.copy(C.snow).lerp(C.rock, h > 190 ? 0 : 0.1);
+    return out.copy(C.tundra[Math.floor(hash(Math.floor((x + 4000) / 40), Math.floor((z + 4000) / 40)) * 3.99)]).lerp(C.tundra[2], fbm(x * .02, z * .02, 2) * 0.5);
+  }
   const C = terrainColor.C || (terrainColor.C = {
     bed: new THREE.Color(0x8f8a64), sand: new THREE.Color(0xd2c08e), grass: new THREE.Color(0x5e9a42),
     fields: [0x86b84e, 0x9ccb5c, 0x72a845, 0xdcc94a, 0xa9cc6c, 0x8fbf55].map(v => new THREE.Color(v)),
@@ -145,7 +209,7 @@ groundAt = (x, z) => Math.max(meshHeight(x, z), 0);
 const terrain = new THREE.Mesh(tGeo, toon(0xffffff, { vertexColors: true }));
 terrain.receiveShadow = true;
 scene.add(terrain);
-const water = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD).rotateX(-Math.PI / 2), toon(0x3d9cc6, { transparent: true, opacity: 0.84 }));
+const water = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD).rotateX(-Math.PI / 2), toon(BIOME === 'rainforest' ? 0x6a7a48 : BIOME === 'arctic' ? 0x4a86b0 : 0x3d9cc6, { transparent: true, opacity: BIOME === 'rainforest' ? 0.9 : 0.84 }));
 scene.add(water);
 const dummy = new THREE.Object3D();
 
@@ -157,7 +221,8 @@ function treesNear(x, z) {
   for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const l = TREE_GRID.get((cx + i) + ',' + (cz + j)); if (l) out.push(...l); }
   return out;
 }
-{
+function addTree(t) { TREES.push(t); const k = cellKey(t.x, t.z); if (!TREE_GRID.has(k)) TREE_GRID.set(k, []); TREE_GRID.get(k).push(t); }
+if (BIOME === 'valley') {
   const spots = [];
   for (let i = 0; i < 9000 && spots.length < 2100; i++) {
     const x = (rand() - .5) * 2200, z = (rand() - .5) * 2200, h = heightAt(x, z);
@@ -179,7 +244,6 @@ function treesNear(x, z) {
     dummy.position.set(s[0], s[1] - 0.5, s[2]); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.set(sz, (s[3] ? 4 : 5) * sz, sz); dummy.updateMatrix();
     trunks.setMatrixAt(i, dummy.matrix);
   });
-  const addTree = t => { TREES.push(t); const k = cellKey(t.x, t.z); if (!TREE_GRID.has(k)) TREE_GRID.set(k, []); TREE_GRID.get(k).push(t); };
   const crownPts = canopy.geometry.attributes.position, cp = new V3();
   broad.forEach((s, i) => {
     const sz = 0.8 + rand() * 0.7, cy = s[1] + 5.5 * sz + 2.5;
@@ -197,10 +261,82 @@ function treesNear(x, z) {
     addTree({ x: s[0], z: s[2], base: s[1] + 2.5, top: s[1] + 2 + 13 * sz, r: 2.2 * sz, perchY: s[1] + 2 + 11 * sz, kind: 'pine' });
   });
   for (const m of [trunks, canopy, cones]) { m.castShadow = m.receiveShadow = true; scene.add(m); }
+} else if (BIOME === 'rainforest') {
+  // dense canopy on tall trunks, a few giant emergent kapok trees poking above it, and palms underneath
+  const crowns = [], palms = [];
+  for (let i = 0; i < 18000 && crowns.length < 2700; i++) {
+    const x = (rand() - .5) * 2300, z = (rand() - .5) * 2300, h = heightAt(x, z);
+    if (h < 2 || h > 330 || Math.hypot(x - VX, z - VZ) < 75 || slopeAt(x, z) < 0.75) continue;
+    if (Math.hypot(x - TEPUI.x, z - TEPUI.z) < TEPUI.r - 20 && rand() < 0.8) continue;
+    const giant = rand() < 0.045;
+    (rand() < 0.2 && !giant ? palms : crowns).push([x, h, z, giant]);
+  }
+  const trunkGeo = new THREE.CylinderGeometry(0.3, 0.55, 1, 6).translate(0, 0.5, 0);
+  const crownGeo = new THREE.IcosahedronGeometry(1, 0), crownPts = crownGeo.attributes.position, cp = new V3();
+  const trunks = new THREE.InstancedMesh(trunkGeo, toon(0x8a7a64), crowns.length + palms.length);
+  const canopy = new THREE.InstancedMesh(crownGeo, toon(0xffffff), crowns.length);
+  const fronds = new THREE.InstancedMesh(new THREE.OctahedronGeometry(1, 0), toon(0xffffff), palms.length);
+  const col = new THREE.Color();
+  crowns.forEach((s, i) => {
+    const sz = 0.9 + rand() * 0.6, giant = s[3], th = giant ? 40 + rand() * 10 : 17 + rand() * 11, cr = giant ? 13 + rand() * 4 : 6.5 * sz, ch = giant ? 6 : 3.2 * sz;
+    dummy.position.set(s[0], s[1] - 0.5, s[2]); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.set(sz * (giant ? 3 : 1), th, sz * (giant ? 3 : 1)); dummy.updateMatrix();
+    trunks.setMatrixAt(i, dummy.matrix);
+    dummy.position.set(s[0], s[1] + th, s[2]); dummy.rotation.set((rand() - .5) * 0.3, rand() * 6, (rand() - .5) * 0.3); dummy.scale.set(cr, ch, cr); dummy.updateMatrix();
+    let crownTop = -Infinity; for (let k = 0; k < crownPts.count; k++) crownTop = Math.max(crownTop, cp.fromBufferAttribute(crownPts, k).applyMatrix4(dummy.matrix).y);
+    canopy.setMatrixAt(i, dummy.matrix);
+    const flower = rand();
+    canopy.setColorAt(i, flower < 0.03 ? col.setHSL(0.93, 0.6, 0.62) : flower < 0.06 ? col.setHSL(0.14, 0.8, 0.55) : col.setHSL(0.25 + rand() * 0.12, 0.5 + rand() * .2, 0.2 + rand() * 0.12));
+    addTree({ x: s[0], z: s[2], base: s[1] + th - ch * 0.6, top: crownTop, r: cr * 0.9, perchY: crownTop - 0.05, kind: 'oak', giant });
+  });
+  palms.forEach((s, i) => {
+    const th = 7 + rand() * 7;
+    dummy.position.set(s[0], s[1] - 0.5, s[2]); dummy.rotation.set((rand() - .5) * 0.25, rand() * 6, (rand() - .5) * 0.25); dummy.scale.set(0.5, th, 0.5); dummy.updateMatrix();
+    trunks.setMatrixAt(crowns.length + i, dummy.matrix);
+    dummy.position.set(s[0], s[1] + th - 0.3, s[2]); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.set(4 + rand() * 1.5, 1.1, 4 + rand() * 1.5); dummy.updateMatrix();
+    fronds.setMatrixAt(i, dummy.matrix); fronds.setColorAt(i, col.setHSL(0.27 + rand() * 0.06, 0.55, 0.33 + rand() * 0.08));
+    addTree({ x: s[0], z: s[2], base: s[1] + th - 1, top: s[1] + th + 0.8, r: 2.5, perchY: s[1] + th + 0.7, kind: 'pine' });
+  });
+  for (const m of [trunks, canopy, fronds]) { m.castShadow = m.receiveShadow = true; scene.add(m); }
+} else {
+  // tundra: no trees, just low shrubs (willow and birch only grow knee-high here)
+  const spots = [];
+  for (let i = 0; i < 6000 && spots.length < 1100; i++) {
+    const x = (rand() - .5) * 2200, z = (rand() - .5) * 2200, h = heightAt(x, z);
+    if (h > 1.5 && h < 150 && slopeAt(x, z) > 0.85) spots.push([x, h, z]);
+  }
+  const shrubs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), toon(0xffffff), spots.length), col = new THREE.Color();
+  spots.forEach(([x, h, z], i) => {
+    const sz = 0.4 + rand() * 0.7;
+    dummy.position.set(x, h + sz * 0.3, z); dummy.rotation.set(rand(), rand() * 6, rand()); dummy.scale.set(sz * 1.4, sz * 0.6, sz * 1.4); dummy.updateMatrix();
+    shrubs.setMatrixAt(i, dummy.matrix); shrubs.setColorAt(i, rand() < 0.5 ? col.setHSL(0.05, 0.45, 0.32) : col.setHSL(0.2, 0.3, 0.3));
+  });
+  shrubs.receiveShadow = true; scene.add(shrubs);
 }
 
-// sheep
-{
+// sheep in the valley; caribou herds on the tundra
+if (BIOME === 'arctic') {
+  const spots = [];
+  for (let i = 0; i < 3000 && spots.length < 90; i++) {
+    const x = (rand() - .5) * 1700, z = (rand() - .5) * 1700, h = heightAt(x, z);
+    if (h < 3 || h > 110 || slopeAt(x, z) < 0.9) continue;
+    const n = 5 + Math.floor(rand() * 7);
+    for (let k = 0; k < n; k++) spots.push([x + (rand() - .5) * 30, z + (rand() - .5) * 30]);
+  }
+  const bodies = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), toon(0x6a523a), spots.length);
+  const necks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.35, 0.55, 0.4), toon(0xe6dccb), spots.length);
+  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.25, 0.28, 0.55), toon(0x5a4430), spots.length);
+  const antlers = new THREE.InstancedMesh(new THREE.ConeGeometry(0.05, 0.9, 4).translate(0, 0.45, 0), toon(0xd8ccb0), spots.length * 2);
+  const e = new THREE.Euler(), off = new V3();
+  spots.forEach(([x, z], i) => {
+    const h = groundAt(x, z), yaw = rand() * 6.28; e.set(0, yaw, 0);
+    dummy.position.set(x, h + 1.05, z); dummy.rotation.set(0, yaw, 0); dummy.scale.set(0.5, 0.55, 1.0); dummy.updateMatrix(); bodies.setMatrixAt(i, dummy.matrix);
+    off.set(0, 0.35, 0.85).applyEuler(e); dummy.position.set(x + off.x, h + 1.35, z + off.z); dummy.rotation.set(-0.4, yaw, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); necks.setMatrixAt(i, dummy.matrix);
+    off.set(0, 0, 1.2).applyEuler(e); dummy.position.set(x + off.x, h + 1.6, z + off.z); dummy.rotation.set(0.5, yaw, 0); dummy.updateMatrix(); heads.setMatrixAt(i, dummy.matrix);
+    for (const sx of [-1, 1]) { off.set(sx * 0.1, 0, 1.05).applyEuler(e); dummy.position.set(x + off.x, h + 1.75, z + off.z); dummy.rotation.set(-0.5, yaw, sx * 0.5); dummy.updateMatrix(); antlers.setMatrixAt(i * 2 + (sx > 0 ? 1 : 0), dummy.matrix); }
+  });
+  for (const m of [bodies, necks, heads, antlers]) { m.castShadow = true; scene.add(m); }
+}
+if (BIOME === 'valley') {
   const spots = [];
   for (let i = 0; i < 4000 && spots.length < 160; i++) {
     const x = (rand() - .5) * 1800, z = (rand() - .5) * 1800, h = heightAt(x, z);
@@ -225,7 +361,8 @@ function treesNear(x, z) {
 // village with a church; buildings are obstacles you can also land on
 const COLLIDERS = [];
 const windowMat = new THREE.MeshBasicMaterial({ color: 0x55524a });
-{
+const waterfall = { mat: null };
+if (BIOME === 'valley') {
   const stone = toon(0xdcd2bb), white = toon(0xefe9dc), slate = toon(0x596072), red = toon(0x9a5a45);
   const box = new THREE.BoxGeometry(1, 1, 1), roof = new THREE.ConeGeometry(0.75, 1, 4).rotateY(Math.PI / 4);
   const g = new THREE.Group();
@@ -252,10 +389,75 @@ const windowMat = new THREE.MeshBasicMaterial({ color: 0x55524a });
   COLLIDERS.push({ ...local(-13), r: 4.6, top: h + 23, name: 'church tower' });
   g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
   scene.add(g);
+} else if (BIOME === 'rainforest') {
+  // a stepped stone temple, half swallowed by the jungle
+  const g = new THREE.Group(), h = heightAt(VX, VZ), stone = toon(0x9a9a7a), moss = toon(0x6a8a4a), box = new THREE.BoxGeometry(1, 1, 1);
+  for (let i = 0; i < 5; i++) {
+    const w = 40 - i * 7, tier = new THREE.Mesh(box, i % 2 ? moss : stone); tier.scale.set(w, 5, w); tier.position.y = 2.5 + i * 5; g.add(tier);
+    COLLIDERS.push({ x: VX, z: VZ, r: w * 0.5, top: h + 5 * (i + 1), name: 'temple steps' });
+  }
+  const stairs = new THREE.Mesh(box, stone); stairs.scale.set(7, 2, 26); stairs.position.set(0, 12, 17); stairs.rotation.x = -0.75; g.add(stairs);
+  const shrine = new THREE.Mesh(box, stone); shrine.scale.set(8, 6, 8); shrine.position.y = 28; g.add(shrine);
+  const door = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: 0x15120c })); door.scale.set(2.4, 3.4, 0.3); door.position.set(0, 27, 4.05); g.add(door);
+  COLLIDERS.push({ x: VX, z: VZ, r: 4.5, top: h + 31, name: 'temple shrine' });
+  g.position.set(VX, h - 0.2, VZ); g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); scene.add(g);
+  // a waterfall pouring off the tepui towards the river
+  const dir = Math.atan2(riverX(TEPUI.z) - TEPUI.x, 0.0001) > 0 ? 1 : -1;
+  const wx = TEPUI.x + dir * (TEPUI.r + 8), wz = TEPUI.z, top = heightAt(TEPUI.x + dir * (TEPUI.r - 25), wz), bottom = heightAt(wx + dir * 40, wz) + 1;
+  const cv = document.createElement('canvas'); cv.width = 32; cv.height = 256; const cx = cv.getContext('2d');
+  for (let i = 0; i < 260; i++) { cx.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.6})`; cx.fillRect(Math.random() * 32, Math.random() * 256, 1 + Math.random() * 3, 10 + Math.random() * 40); }
+  const tex = new THREE.CanvasTexture(cv); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, (top - bottom) / 30);
+  waterfall.mat = new THREE.MeshBasicMaterial({ color: 0xd8f0ff, map: tex, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false });
+  const fall = new THREE.Mesh(new THREE.PlaneGeometry(16, top - bottom), waterfall.mat);
+  fall.position.set(wx, (top + bottom) / 2, wz); fall.rotation.y = Math.PI / 2; scene.add(fall);
+  const mist = new THREE.Mesh(new THREE.IcosahedronGeometry(14, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }));
+  mist.position.set(wx + dir * 6, bottom + 4, wz); mist.scale.y = 0.5; scene.add(mist);
+  Object.assign(waterfall, { x: wx, z: wz, top, bottom });
+} else {
+  // a little research hut with a radio mast, an inukshuk stone marker, and boulders you can perch on
+  const g = new THREE.Group(), h = heightAt(VX, VZ), box = new THREE.BoxGeometry(1, 1, 1);
+  const walls = new THREE.Mesh(box, toon(0xa8382a)); walls.scale.set(6, 3.5, 10); walls.position.y = 1.75; g.add(walls);
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(0, 4.4, 2, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 1.7), toon(0x5a6068)); roof.position.y = 4.5; g.add(roof);
+  for (const sx of [-0.25, 0.25]) { const w = new THREE.Mesh(box, windowMat); w.scale.set(1, 1, 0.2); w.position.set(sx * 6, 2, 5.05); g.add(w); }
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 14, 5), toon(0xc8c8c8)); mast.position.set(5, 7, -3); g.add(mast);
+  g.position.set(VX, h - 0.2, VZ); g.rotation.y = 0.3; g.traverse(m => { if (m.isMesh) m.castShadow = true; }); scene.add(g);
+  COLLIDERS.push({ x: VX, z: VZ, r: 5.5, top: h + 5.4, name: 'hut roof' });
+  const ix = 320, iz = -520, ih = heightAt(ix, iz), ink = new THREE.Group(), rockM = toon(0x8a8c90);
+  for (const [w, hh, d, y, x] of [[0.8, 1.4, 0.6, 0.7, -0.6], [0.8, 1.4, 0.6, 0.7, 0.6], [2.6, 0.5, 0.7, 1.65, 0], [0.9, 0.9, 0.6, 2.35, 0], [2, 0.4, 0.6, 3, 0], [0.6, 0.6, 0.5, 3.5, 0]]) {
+    const st = new THREE.Mesh(box, rockM); st.scale.set(w, hh, d); st.position.set(x, y, 0); ink.add(st);
+  }
+  ink.position.set(ix, ih, iz); ink.traverse(m => { if (m.isMesh) m.castShadow = true; }); scene.add(ink);
+  COLLIDERS.push({ x: ix, z: iz, r: 1.2, top: ih + 3.8, name: 'inukshuk' });
+  const boulders = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), toon(0x8a8c90), 420);
+  for (let i = 0; i < 420; i++) {
+    let x, z, bh; do { x = (rand() - .5) * 2000; z = (rand() - .5) * 2000; bh = heightAt(x, z); } while (bh < 1.5);
+    const sc = rand() < 0.12 ? 2.2 + rand() * 2 : 0.5 + rand() * 1.2;
+    dummy.position.set(x, bh + sc * 0.4, z); dummy.rotation.set(rand(), rand() * 6, rand()); dummy.scale.set(sc, sc * 0.8, sc); dummy.updateMatrix(); boulders.setMatrixAt(i, dummy.matrix);
+    if (sc > 2) COLLIDERS.push({ x, z, r: sc * 0.8, top: bh + sc * 1.1, name: 'boulder' });
+  }
+  boulders.castShadow = boulders.receiveShadow = true; scene.add(boulders);
 }
-function colliderAt(x, z) { for (const c of COLLIDERS) if (Math.hypot(x - c.x, z - c.z) < c.r) return c; return null; }
+function colliderAt(x, z) { let best = null; for (const c of COLLIDERS) if (Math.hypot(x - c.x, z - c.z) < c.r && (!best || c.top > best.top)) best = c; return best; }
 function surfaceAt(x, z) { const c = colliderAt(x, z), g = groundAt(x, z); return c ? Math.max(g, c.top) : g; }
 
+// the northern lights: glowing curtains in the Arctic night sky
+const aurora = { mat: null };
+if (BIOME === 'arctic') {
+  aurora.mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false,
+    uniforms: { t: { value: 0 }, night: { value: 0 } },
+    vertexShader: `varying vec2 vUv; uniform float t; void main(){ vUv = uv; vec3 p = position; p.z += sin(p.x * 0.004 + t * 0.3) * 120.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
+    fragmentShader: `varying vec2 vUv; uniform float t; uniform float night;
+      void main(){ float bands = 0.55 + 0.45 * sin(vUv.x * 40.0 + t * 0.8) * sin(vUv.x * 13.0 - t * 0.5);
+        float fade = smoothstep(0.0, 0.25, vUv.y) * (1.0 - smoothstep(0.55, 1.0, vUv.y));
+        vec3 c = mix(vec3(0.15, 1.0, 0.55), vec3(0.6, 0.3, 1.0), smoothstep(0.45, 1.0, vUv.y));
+        gl_FragColor = vec4(c * bands * fade * night * 0.85, 1.0); }`
+  });
+  for (const [x, z, ry] of [[0, -1500, 0], [-900, -1200, 0.6], [900, -1250, -0.5]]) {
+    const cur = new THREE.Mesh(new THREE.PlaneGeometry(1800, 380, 60, 1), aurora.mat);
+    cur.position.set(x, 820, z); cur.rotation.y = ry; cur.frustumCulled = false; scene.add(cur);
+  }
+}
 // clouds
 const clouds = [];
 const cloudMat = toon(0xffffff, { emissive: 0x7d8a96, emissiveIntensity: 0.35 });
@@ -344,7 +546,7 @@ function birdGeos(o) {
   const hs = o.headShape || [1, 0.92, 1.18], hz = hs[2], bl = o.beakLen || 0.95;
   const skull = facet(new THREE.IcosahedronGeometry(r, 1).scale(...hs),
     (n, m) => o.face && n.z > 0.3 ? o.face : o.cheek && n.y < -0.15 && m.z > -r * 0.2 ? o.cheek : o.nape && m.z < -r * 0.3 && n.y > 0 ? o.nape : o.head, 0.06);
-  const beakG = facet(new THREE.ConeGeometry(r * .34, r * bl, 5).rotateX(Math.PI / 2), (n, m) => m.z > r * bl * 0.2 && o.beakTip ? o.beakTip : o.beak, 0.05);
+  const beakG = facet(new THREE.ConeGeometry(r * (o.beakW || .34), r * bl, 5).rotateX(Math.PI / 2), (n, m) => m.z > r * bl * 0.2 && o.beakTip ? o.beakTip : o.beak, 0.05);
   const headParts = [skull, place(beakG, 0, -r * .22, r * (hz * .5 + bl * .42), o.hook ?? 0.5)];
   if (o.cere) headParts.push(place(facet(new THREE.OctahedronGeometry(r * .26, 0).scale(1, .8, .9), () => o.cere), 0, -r * .12, r * hz * .9));
   if (o.crest) headParts.push(place(facet(new THREE.ConeGeometry(r * .35, r * 1.3, 4).rotateX(-Math.PI / 2 - 0.5), () => o.crest), 0, r * .55, -r * .45));
@@ -505,6 +707,39 @@ Object.assign(LOOK, {
     back: 0x8a6a4c, belly: 0xd98f78, head: 0x6f8aa6, wing: 0x3a3836, tip: 0x2c2a28, under: 0xd8cfc4, beak: 0xa8a6a0, feet: 0x9a8a80 },
 });
 
+// birds of the rainforest and the Arctic, built from the British shapes with new sizes and colours
+const like = (base, o) => ({ ...LOOK[base], _fit: undefined, _geo: undefined, ...o });
+Object.assign(LOOK, {
+  harpy: like('eagle', { rounded: true, chord: 0.6, primaries: 7, secondaries: 6, tailBars: 0x2a2a2e, realLen: 0.95, realSpan: 1.9, headR: .16, headShape: [.95, .95, 1.15], beakLen: 1.15, hook: .8,
+    tail: [[-.08, 0], [-.12, -.46], [0, -.5], [.12, -.46], [.08, 0]],
+    back: 0x3a3c42, mantle: 0x2c2e33, belly: 0xf2f0ea, head: 0xa8aab0, nape: undefined, crest: 0x2a2a2e, cheek: 0xb8bac0, wing: 0x3e4048, tip: 0x1e2024, under: 0xe8e6e0,
+    tailTop: 0x45474e, beak: 0x2a2a2a, beakTip: 0x151515, cere: 0x2a2a2a, neck: 0x26282c, feet: 0xf0c83a }),
+  batfalcon: like('falcon', { realLen: 0.26, realSpan: 0.6, back: 0x1c1e24, mantle: 0x15171c, belly: 0xb85a2a, bars: 0x1c1e24, head: 0x15171c, cheek: 0xf0dcb8,
+    wing: 0x23262e, tip: 0x111318, under: 0x3a3a40, malar: undefined, tailBars: 0x6a6a70 }),
+  gyr: like('falcon', { realLen: 0.55, realSpan: 1.25, chord: 0.44, back: 0xd2d0c8, mantle: 0xb8b6ae, belly: 0xf6f4ee, bars: 0x8a8a90, head: 0xe6e4dc, cheek: 0xf6f4ee,
+    wing: 0xc8c6be, tip: 0x5a5a62, under: 0xeeece6, malar: 0x9a9aa0, tailBars: 0x8a8a90, beak: 0x6a7280, cere: 0xe8c84a, eyeRing: 0xe8c84a, feet: 0xe8c84a }),
+  snowyowl: like('owl', { realLen: 0.6, realSpan: 1.4, headShape: [1, 0.95, 0.95], back: 0xf2f0ea, mantle: 0xe0ded6, belly: 0xfbfaf6, bars: 0x3a3a3a, head: 0xf4f2ec, face: 0xffffff,
+    wing: 0xeeece4, tip: 0xd8d6ce, under: 0xfbfaf6, tailBars: 0x6a6a6a, beak: 0x2a2a2a, eyeRing: 0xf2d020, feet: 0xfbfaf6 }),
+  macaw: like('pigeon', { realLen: 0.85, realSpan: 1.0, chord: 0.36, tailFeathers: 5, headR: .12, beakLen: 1.1, hook: 1.1, beakW: .5,
+    tail: [[-.05, 0], [-.06, -.7], [0, -.85], [.06, -.7], [.05, 0]],
+    back: 0xd8261e, belly: 0xd02a20, head: 0xe02a22, face: 0xf6f0e6, wing: 0xf0c020, tip: 0x2a4ac0, under: 0xc0302a, tailTop: 0xd8261e, beak: 0xe8e0d0, beakTip: 0x222222, neck: undefined, feet: 0x5a5a5a }),
+  toucan: like('crow', { rounded: true, fingered: false, realLen: 0.6, realSpan: 0.6, beakLen: 3.4, beakW: .55, hook: .15,
+    tail: [[-.07, 0], [-.09, -.3], [.09, -.3], [.07, 0]],
+    back: 0x15161a, belly: 0x18191d, head: 0x15161a, cheek: 0xffffff, beak: 0xf5891e, beakTip: 0x1a1a1a, eyeRing: 0x3a8ad8, feet: 0x5a7ab0 }),
+  parakeet: like('finch', { realLen: 0.25, realSpan: 0.4, beakLen: .7, hook: 1.1, beakW: .45,
+    tail: [[-.03, 0], [-.04, -.4], [0, -.48], [.04, -.4], [.03, 0]], back: 0x4ab03a, belly: 0x7ad04a, head: 0x5ac040, wing: 0x3a9a30, tip: 0x2a6a8a, under: 0x8ad05a, beak: 0xe8b0a0, feet: 0x8a8a8a }),
+  muscovy: like('teal', { realLen: 0.75, realSpan: 1.35, back: 0x1e2a26, belly: 0x22262a, head: 0x2a2e30, face: 0xc0302a, wing: 0x1a3a30, tip: 0x0f1a16, under: 0xf2f2f2, patch: undefined, beak: 0xe8b0a8, feet: 0x3a3a3a }),
+  tinamou: like('grouse', { realLen: 0.42, realSpan: 0.6, back: 0x6a6a3a, belly: 0x8a7a54, head: 0x5a5a32, wing: 0x6a6038, tip: 0x4a4228, bars: 0x4a4a2a, eyeRing: undefined, beak: 0x6a6a5a, feet: 0x8a9aa0 }),
+  goose: like('teal', { realLen: 0.7, realSpan: 1.45, chord: 0.38, headR: .11, back: 0xf4f4f0, belly: 0xffffff, head: 0xf8f8f4, wing: 0xf0f0ec, tip: 0x1a1a1a, under: 0xf4f4f0, patch: undefined, beak: 0xe88a8a, feet: 0xe88a8a }),
+  raven: like('crow', { realLen: 0.63, realSpan: 1.2, beakLen: 1.9, tail: [[-.07, 0], [-.12, -.34], [0, -.42], [.12, -.34], [.07, 0]], back: 0x121318, head: 0x0e0f12 }),
+  bunting: like('finch', { realLen: 0.165, realSpan: 0.33, back: 0x3a3632, mantle: 0x2a2622, belly: 0xffffff, head: 0xf4f2ee, wing: 0xffffff, tip: 0x1a1a1a, under: 0xffffff, beak: 0x2a2a2a, feet: 0x1a1a1a }),
+  longtail: like('teal', { realLen: 0.5, realSpan: 0.73, tail: [[-.04, 0], [-.05, -.3], [0, -.5], [.05, -.3], [.04, 0]], back: 0x2a2622, belly: 0xf4f2ee, head: 0xf4f2ee, cheek: 0x8a8070,
+    wing: 0x2a2622, tip: 0x1a1a1a, under: 0xd8d4cc, patch: 0x6a6a5a, beak: 0xe89aa0, feet: 0x6a6a6a }),
+  ptarmigan: like('grouse', { back: 0xd8d2c0, mantle: 0xa89a7a, belly: 0xffffff, bars: undefined, head: 0xb8ac90, wing: 0xffffff, tip: 0xf4f4f0, under: 0xffffff, feet: 0xffffff }),
+  bat: like('finch', { rounded: true, primaries: 4, secondaries: 3, tailFeathers: 3, realLen: 0.11, realSpan: 0.4, beakLen: .4, crest: 0x4a3a30,
+    back: 0x4a3a30, belly: 0x6a5444, head: 0x4a3a30, wing: 0x2a201c, tip: 0x2a201c, under: 0x3a2c26, beak: 0x3a2a24, feet: 0x2a201c }),
+});
+
 // Each playable bird flies differently, has its own special skill and its own favourite food.
 const SPECIES = {
   peregrine: { lookLimit: 1.6, look: 'falcon', name: 'Peregrine Falcon', plural: 'Peregrines', drag: .0016, tuckDrag: .00098, arrowDrag: .00078, thrust: 1.88, lift: 2.6, turn: 1.95, energy: 100, flapCost: 5, maxSpeed: 115, thermal: 1, ability: null, start: 7,
@@ -519,7 +754,16 @@ const SPECIES = {
     diet: { grouse: .25, carrion: 1.25, shrew: .9, finch: .4, pigeon: .3, eel: .5, fish: .4, crow: .2, teal: .2, hare: .1 } },
   hawk: { lookLimit: 1.7, look: 'hawk', name: 'Sparrowhawk', plural: 'Sparrowhawks', drag: .002, tuckDrag: .0018, arrowDrag: .0015, thrust: 2.75, lift: 3, turn: 2.9, energy: 80, flapCost: 6, maxSpeed: 90, thermal: .9, ability: 'burst', treeSafe: true, start: 7,
     diet: { grouse: .6, finch: 1.3, pigeon: .8, shrew: .6, crow: .3, teal: .3, eel: .3, fish: .1, hare: .05, carrion: .3 } },
+  harpy: { world: 'rainforest', lookLimit: 1.6, look: 'harpy', name: 'Harpy Eagle', plural: 'Harpy eagles', drag: .0019, tuckDrag: .0022, arrowDrag: .0018, thrust: 2.2, lift: 2.9, turn: 2.3, energy: 130, flapCost: 6, maxSpeed: 80, thermal: 1, ability: 'sight', treeSafe: true, start: 7,
+    diet: { monkey: 1.3, sloth: 1.3, crow: .9, pigeon: .8, hare: 1.1, grouse: .8, teal: .6, shrew: .4, finch: .3, bat: .3, fish: .2, eel: .2, carrion: .4 } },
+  batfalcon: { world: 'rainforest', lookLimit: 1.6, look: 'batfalcon', name: 'Bat Falcon', plural: 'Bat falcons', drag: .0016, tuckDrag: .001, arrowDrag: .0008, thrust: 2.1, lift: 2.7, turn: 2.4, energy: 90, flapCost: 5, maxSpeed: 110, thermal: 1, ability: null, start: 16,
+    diet: { bat: 1.3, finch: 1.25, crow: .5, pigeon: .35, teal: .3, grouse: .3, shrew: .8, monkey: .05, sloth: .05, hare: .05, fish: .1, eel: .1, carrion: .2 } },
+  snowyowl: { world: 'arctic', lookLimit: 2.35, look: 'snowyowl', name: 'Snowy Owl', plural: 'Snowy owls', drag: .0021, tuckDrag: .003, arrowDrag: .0026, thrust: 1.8, lift: 3, turn: 2.2, energy: 110, flapCost: 4.5, maxSpeed: 70, thermal: .9, ability: 'listen', silent: true, start: 9,
+    diet: { shrew: 1.3, grouse: 1.1, hare: 1, teal: .8, finch: .7, pigeon: .5, crow: .4, fish: .3, eel: .3, carrion: .6 } },
+  gyr: { world: 'arctic', lookLimit: 1.6, look: 'gyr', name: 'Gyrfalcon', plural: 'Gyrfalcons', drag: .0016, tuckDrag: .001, arrowDrag: .0008, thrust: 2.0, lift: 2.7, turn: 1.9, energy: 115, flapCost: 5, maxSpeed: 115, thermal: 1, ability: null, start: 7,
+    diet: { grouse: 1.3, teal: 1.1, pigeon: 1, crow: .9, finch: .7, shrew: .8, hare: .8, fish: .3, eel: .3, carrion: .6 } },
 };
+for (const sp of Object.values(SPECIES)) sp.world = sp.world || 'valley';
 const ABILITY = {
   sight: { label: 'SIGHT', name: 'Keen sight', hold: false },
   listen: { label: 'LISTEN', name: 'Listen', hold: true },
@@ -541,6 +785,44 @@ const PREY = {
   fish: { name: 'Brown trout', xp: 45, food: 45, feathers: [0xcfe8f5, 0xffffff, 0x9fd0ec], critter: true, range: 260 },
   carrion: { name: 'Dead rabbit', xp: 20, food: 50, feathers: [0x8a7a68, 0xb0a08a], critter: true, range: 300 },
 };
+Object.assign(PREY, {
+  monkey: { name: 'Capuchin monkey', xp: 80, food: 70, feathers: [0x6a4a2a, 0xe8d8b8], critter: true, range: 300 },
+  sloth: { name: 'Three-toed sloth', xp: 90, food: 85, feathers: [0x8a7a5a, 0x6a7a4a], critter: true, range: 300 },
+  bat: { name: 'Fruit bat', xp: 35, speed: 12, flee: 18, alert: 30, feathers: [0x4a3a30, 0x2a201c, 0x6a5444], food: 22, nightOnly: true },
+});
+// the same jobs are done by different animals in each world: [name, look, feathers, food]
+const SKINS = {
+  rainforest: {
+    pigeon: ['Scarlet macaw', 'macaw', [0xd8261e, 0xf0c020, 0x2a4ac0], 50],
+    crow: ['Toco toucan', 'toucan', [0x15161a, 0xffffff, 0xf5891e], 60],
+    finch: ['Green parakeet', 'parakeet', [0x4ab03a, 0x7ad04a, 0x2a6a8a], 22],
+    teal: ['Muscovy duck', 'muscovy', [0x1e2a26, 0xf2f2f2, 0x1a3a30], 60],
+    grouse: ['Great tinamou', 'tinamou', [0x6a6a3a, 0x8a7a54, 0x4a4a2a], 50],
+    shrew: ['Anole lizard', null, [0x5ab04a, 0xd8e0a0]], eel: ['Electric eel', null, [0x3a3a38, 0xd08a3a, 0xcfe8f5]], hare: ['Agouti', null, [0x8a5a2a, 0xc89a5a]],
+    fish: ['Peacock bass', null, [0x9ab03a, 0xe8c050, 0xcfe8f5]], carrion: ['Dead peccary', null, [0x4a4038, 0x6a5a4a]],
+  },
+  arctic: {
+    pigeon: ['Snow goose', 'goose', [0xf4f4f0, 0xffffff, 0x1a1a1a], 70],
+    crow: ['Common raven', 'raven', [0x121318, 0x23262c, 0x30333a], 60],
+    finch: ['Snow bunting', 'bunting', [0xffffff, 0x3a3632, 0x1a1a1a], 18],
+    teal: ['Long-tailed duck', 'longtail', [0x2a2622, 0xf4f2ee, 0x8a8070], 55],
+    grouse: ['Rock ptarmigan', 'ptarmigan', [0xffffff, 0xb0a890, 0xeeeeea], 55],
+    shrew: ['Lemming', null, [0x8a6a4a, 0xd8c8a0]], eel: ['Arctic grayling', null, [0x6a7078, 0xcfe8f5, 0xffffff]], hare: ['Arctic hare', null, [0xf2f2ee, 0xffffff]],
+    fish: ['Arctic char', null, [0xd85a3a, 0xcfe8f5, 0xffffff]], carrion: ['Caribou leftovers', null, [0x6a523a, 0xe6dccb]],
+  },
+};
+for (const [type, [name, look, feathers, food]] of Object.entries(SKINS[BIOME] || {})) {
+  PREY[type].name = name;
+  if (look) LOOK[type] = LOOK[look];
+  if (feathers) PREY[type].feathers = feathers;
+  if (food) PREY[type].food = food;
+}
+// colours for the ground animals in each world
+const CRIT = {
+  valley: { shrew: [0x5e4632, 0xb8a58a, 0xd99a9a, 0x4a3828], hare: [0x8a6a48, 0xd8c8a8, 0x222222], eel: [0x4b5a2c, 0xc9b98a], fish: [0x7a6a48, 0x3a2a1a, 0xe8dcc0, 0x6a5a3a], carrion: [0x8a7a68, 0xb0a08a, 0x7a6a58] },
+  rainforest: { shrew: [0x5ab04a, 0xd8e0a0, 0x4a9a3a, 0x4a9a3a], hare: [0x8a5a2a, 0xc89a5a, 0x6a4020], eel: [0x3a3a38, 0xd08a3a], fish: [0x9ab03a, 0x1a2a1a, 0xe8c050, 0xd8502a], carrion: [0x4a4038, 0x6a5a4a, 0x3a302a] },
+  arctic: { shrew: [0x8a6a4a, 0xd8c8a0, 0xb08a7a, 0x8a6a4a], hare: [0xf2f2ee, 0xffffff, 0x222222], eel: [0x6a7078, 0xd8dce0], fish: [0x5a6a5a, 0xe8e0c8, 0xd85a3a, 0x4a5a4a], carrion: [0x6a523a, 0xe6dccb, 0x5a4430] },
+}[BIOME];
 const catchable = p => p.state === 'fly' || p.state === 'active';
 
 // ---------- nests: every species has its own home ----------
@@ -575,8 +857,17 @@ function buildNest(id, x, y, z, { scale = 1.3, rocks = false, rags = false, perc
   NESTS[id] = { x, y, z, yaw: out, perch: new V3(x + Math.sin(out) * 1.9 * scale, y + 0.6 * scale, z + Math.cos(out) * 1.9 * scale) };
 }
 function nearestTree(x, z, kind) { let best = null, bd = Infinity; for (const t of TREES) { if (kind && t.kind !== kind) continue; const d = Math.hypot(t.x - x, t.z - z); if (d < bd) { bd = d; best = t; } } return best; }
-buildNest('peregrine', EX, EY, EZ, { scale: 0.3, rocks: true });
-{
+// a tall dead tree with a few bare branches; returns the height of its top
+function deadTree(x, z, hgt) {
+  const h = heightAt(x, z), snag = new THREE.Group(), deadM = toon(0x8f8a80);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, hgt, 6), deadM); trunk.position.y = hgt / 2; snag.add(trunk);
+  for (const [a, y] of [[0.6, hgt * 0.6], [2.5, hgt * 0.75], [4.2, hgt * 0.45]]) { const br = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 5, 5), deadM); br.position.set(Math.cos(a) * 1.6, y, Math.sin(a) * 1.6); br.rotation.set(Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9); snag.add(br); }
+  snag.position.set(x, h, z); snag.traverse(m => { m.castShadow = true; }); scene.add(snag);
+  COLLIDERS.push({ x, z, r: 1.4, top: h + hgt - 0.4, name: 'dead tree' });
+  return h + hgt - 0.4;
+}
+if (BIOME === 'valley') {
+  buildNest('peregrine', EX, EY, EZ, { scale: 0.3, rocks: true });
   // golden eagle: the highest gentle crag in the western mountains, below the thin air
   let best = null, bh = -1;
   for (let x = -1000; x < -500; x += 20) for (let z = -900; z < 900; z += 20) {
@@ -597,12 +888,7 @@ buildNest('peregrine', EX, EY, EZ, { scale: 0.3, rocks: true });
   // osprey: a big stick nest on top of a dead tree by the river
   let ox = riverX(560) + 52, oz = 560;
   for (let k = 0; k < 40 && heightAt(ox, oz) < 2; k++) ox += 4;
-  const oh = heightAt(ox, oz), snag = new THREE.Group(), deadM = toon(0x8f8a80);
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, 20, 6), deadM); trunk.position.y = 10; snag.add(trunk);
-  for (const [a, y] of [[0.6, 12], [2.5, 15], [4.2, 9]]) { const br = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 5, 5), deadM); br.position.set(Math.cos(a) * 1.6, y, Math.sin(a) * 1.6); br.rotation.set(Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9); snag.add(br); }
-  snag.position.set(ox, oh, oz); snag.traverse(m => { m.castShadow = true; }); scene.add(snag);
-  COLLIDERS.push({ x: ox, z: oz, r: 1.4, top: oh + 19.6, name: 'dead tree' });
-  buildNest('osprey', ox, oh + 19.6, oz, { scale: 0.5, chicksN: 2 });
+  buildNest('osprey', ox, deadTree(ox, oz, 20), oz, { scale: 0.5, chicksN: 2 });
   // red kite: high in a big oak, decorated with rags
   const kt = nearestTree(riverX(300) + 330, 300, 'oak');
   buildNest('kite', kt.x, kt.top - 0.1, kt.z, { scale: 0.35, rags: true, chicksN: 2 });
@@ -611,7 +897,30 @@ buildNest('peregrine', EX, EY, EZ, { scale: 0.3, rocks: true });
   const ht = nearestTree(riverX(-420) + 280, -420, 'oak');
   buildNest('hawk', ht.x, ht.top - 0.1, ht.z, { scale: 0.25, chicksN: 3 });
   NESTS.hawk.camMin = ht.top + 0.6;
+} else if (BIOME === 'rainforest') {
+  // harpy eagle: a huge stick nest on top of a giant emergent kapok tree
+  const want = [riverX(-250) - 260, -250];
+  let gt = null, gd = Infinity; for (const t of TREES) if (t.giant) { const d = Math.hypot(t.x - want[0], t.z - want[1]); if (d < gd) { gd = d; gt = t; } }
+  buildNest('harpy', gt.x, gt.top - 0.4, gt.z, { scale: 0.75, chicksN: 1 }); NESTS.harpy.camMin = gt.top + 1;
+  // bat falcon: high in a tall dead tree standing on the river bank
+  let ox = riverX(140) + 34, oz = 140; for (let k = 0; k < 40 && heightAt(ox, oz) < 2; k++) ox += 4;
+  buildNest('batfalcon', ox, deadTree(ox, oz, 36) + 0.45, oz, { scale: 0.3, chicksN: 3 });
+} else {
+  // snowy owl: a scrape on top of a low rise in the open tundra
+  let best = [riverX(250) + 200, 250], bh = -1;
+  for (let x = -100; x < 500; x += 12) for (let z = -100; z < 600; z += 12) {
+    const h = heightAt(x, z); if (h > bh && h > 6 && h < 70 && slopeAt(x, z) > 0.9 && Math.hypot(x - VX, z - VZ) > 120) { bh = h; best = [x, z]; }
+  }
+  buildNest('snowyowl', best[0], groundAt(best[0], best[1]), best[1], { scale: 0.4, owlets: true, chicksN: 4 });
+  // gyrfalcon: a bare ledge high on the crag
+  let gb = [CRAG.x, CRAG.z], gh = -1;
+  for (let x = CRAG.x - 120; x < CRAG.x + 120; x += 6) for (let z = CRAG.z - 120; z < CRAG.z + 120; z += 6) {
+    const h = heightAt(x, z); if (h > gh && h < THIN_AIR - 70 && slopeAt(x, z) > 0.7) { gh = h; gb = [x, z]; }
+  }
+  buildNest('gyr', gb[0], groundAt(gb[0], gb[1]), gb[1], { scale: 0.32, rocks: true, chicksN: 3 });
 }
+// start next to the first nest in this world
+{ const first = NESTS[Object.keys(NESTS)[0]]; EX = first.x; EY = first.y; EZ = first.z; EYRIE.set(EX, EY, EZ); }
 const beacon = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 340, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xf0c02a, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
 beacon.position.set(EX, EY + 170, EZ); beacon.visible = false; scene.add(beacon);
 
@@ -661,7 +970,7 @@ const HOUR = 40;                       // real seconds per game hour (a full day
 const TOD = { hour: 7, day: 1, scale: 1 };
 let nightF = 0;
 const SKY = {
-  dayTop: new THREE.Color(0x3f8fd4), dayHor: new THREE.Color(0xd3e9ef), duskTop: new THREE.Color(0x47609c), duskHor: new THREE.Color(0xf2a774),
+  dayTop: new THREE.Color(BIOME === 'rainforest' ? 0x5c9fd6 : BIOME === 'arctic' ? 0x6ea9dc : 0x3f8fd4), dayHor: new THREE.Color(BIOME === 'rainforest' ? 0xd6e6cc : BIOME === 'arctic' ? 0xe8eff3 : 0xd3e9ef), duskTop: new THREE.Color(0x47609c), duskHor: new THREE.Color(0xf2a774),
   nightTop: new THREE.Color(0x060b1f), nightHor: new THREE.Color(0x18233f),
   hemiDay: new THREE.Color(0xc4e4ff), hemiNight: new THREE.Color(0x5a70b0), gDay: new THREE.Color(0x6a8a48), gNight: new THREE.Color(0x1a2030),
   sunCol: new THREE.Color(0xfff0d2), duskCol: new THREE.Color(0xffa060), moonCol: new THREE.Color(0x9fb4ff),
@@ -690,6 +999,8 @@ function updateTime(dt) {
   if (elev > -0.03) { sun.intensity = 2.1 * smooth(-0.03, 0.2, elev); sun.color.copy(SKY.sunCol).lerp(SKY.duskCol, dusk * 0.7); LIGHT_DIR.copy(SUN_DIR); }
   else { sun.intensity = 0.6 * nightF; sun.color.copy(SKY.moonCol); LIGHT_DIR.copy(MOON_DIR); }
   stars.material.opacity = nightF * 0.9;
+  if (aurora.mat) { aurora.mat.uniforms.t.value = game.t; aurora.mat.uniforms.night.value = nightF; }
+  if (waterfall.mat) waterfall.mat.map.offset.y += dt * 0.9;
   windowMat.color.copy(SKY.winOff).lerp(SKY.winOn, nightF);
   cloudMat.color.copy(SKY.cloudDay).lerp(SKY.cloudNight, nightF); cloudMat.emissiveIntensity = 0.35 * (1 - nightF);
 }
@@ -706,19 +1017,23 @@ const store = {
 };
 const settings = { invert: false, muted: false, autoLevel: false, horizon: true, mph: true, ...(store.get(SETTINGS_KEY) || {}) };
 const saveSettings = () => store.set(SETTINGS_KEY, settings);
-const blankStats = () => ({ pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, finch: 0, hare: 0, fish: 0, carrion: 0, scans: 0, bursts: 0, listenTime: 0, hoverTime: 0, woodsTime: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
-let prog = { xp: 0, mission: 0, stats: blankStats(), done: false };
+const blankStats = () => ({ monkey: 0, sloth: 0, bat: 0, grouse: 0, distance: 0, pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, finch: 0, hare: 0, fish: 0, carrion: 0, scans: 0, bursts: 0, listenTime: 0, hoverTime: 0, woodsTime: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
+let prog = { xp: 0, mission: 0, stats: blankStats(), done: false, found: [], chal: [] };
 const stats = () => prog.stats;
 
 const LEVELS = [
   { xp: 0, name: 'Fledgling' }, { xp: 120, name: 'Juvenile', skill: 'keen' }, { xp: 320, name: 'Hunter', skill: 'wings' },
-  { xp: 600, name: 'Sky Master', skill: 'arrow' }, { xp: 950, name: 'Lord of the Valley', skill: 'grip' }
+  { xp: 600, name: 'Sky Master', skill: 'arrow' }, { xp: 950, name: 'Master Hunter', skill: 'grip' },
+  { xp: 1400, name: 'Explorer', skill: 'stamina' }, { xp: 2000, name: 'Legend', skill: 'talons' }, { xp: 2800, name: 'Lord of the Skies', skill: 'glide' }
 ];
 const SKILLS = {
   keen: { name: 'Keen Eyes', desc: 'Spot prey from 450 m away instead of 250 m.' },
   wings: { name: 'Strong Wings', desc: 'Flapping is 30% stronger and you hold more energy.' },
   arrow: { name: 'Living Arrow', desc: 'A tighter tuck raises your top stoop speed to about 390 km/h.' },
   grip: { name: 'Iron Grip', desc: 'Your talons reach further and hold on better, so more strikes succeed.' },
+  stamina: { name: 'Tireless', desc: 'You get hungry, thirsty and tired 25% more slowly.' },
+  talons: { name: 'Razor Talons', desc: 'Even more of your strikes hold on.' },
+  glide: { name: 'Master Glider', desc: 'Your wings slip through the air more easily, so you glide further and faster.' },
 };
 const levelIdx = () => { let l = 0; LEVELS.forEach((L, i) => { if (prog.xp >= L.xp) l = i; }); return l; };
 const has = k => LEVELS.slice(0, levelIdx() + 1).some(L => L.skill === k);
@@ -768,7 +1083,71 @@ const FACTS = {
   hGarden: 'Sparrowhawks often hunt around garden bird feeders, where small birds gather.',
   wind: 'Wind usually gets stronger the higher you go, and it often changes direction with height too. Birds of prey use it: kestrels hover by facing into the wind.',
   fox: 'Foxes will happily eat a bird that lands on the ground. That is one reason birds of prey prefer to rest high up on cliffs and in trees.',
+  hpTalons: 'A harpy eagle\'s back talons can be 13 cm long, about as long as a grizzly bear\'s claws. Its eyesight is sharp enough to spot a monkey hiding in the leaves.',
+  hpCanopy: 'Harpy eagles hunt inside and just above the forest. Their broad, short wings let them twist between branches to snatch monkeys and sloths.',
+  hpNest: 'Harpy eagles build enormous stick nests high in the tallest trees, often kapok trees that stand above the rest of the forest.',
+  hpChick: 'Harpy eagles raise just one chick every two or three years, and the young eagle stays with its parents for over a year.',
+  hpPanama: 'The harpy eagle is the national bird of Panama. It is named after the harpies, monsters with eagle bodies from ancient Greek stories.',
+  bfSmall: 'Bat falcons are tiny falcons, not much bigger than a blackbird, but fast enough to catch swifts and bats in mid-air.',
+  bfPerch: 'Bat falcons perch on tall dead trees above the forest, then dash out to catch insects, birds and bats, especially at dawn and dusk.',
+  bfNest: 'Bat falcons nest in holes high up in dead trees, safe from snakes and monkeys.',
+  bfEat: 'Bat falcons often eat small catches in mid-air, holding them in one foot as they fly.',
+  soDay: 'Snowy owls hunt in daylight. In the Arctic summer the sun hardly sets at all, so they have to!',
+  soLemm: 'A single snowy owl can eat around 1,600 lemmings in a year.',
+  soNest: 'Snowy owls nest on the ground, on a little rise where they can watch out for foxes.',
+  soHear: 'Snowy owls can hear lemmings moving under the snow, then plunge right through it to grab them.',
+  gyBig: 'The gyrfalcon is the biggest falcon in the world. Some are almost pure white, like the one you are playing.',
+  gyPtarm: 'Gyrfalcons mostly eat ptarmigan. They chase them low and fast over the ground instead of stooping from high up.',
+  gyNest: 'Gyrfalcons don\'t build their own nests. They use an old raven\'s nest or a bare ledge on a cliff.',
+  gyCold: 'Gyrfalcons live in the Arctic all year round, even through the long, dark winter.',
+  aurora: 'The northern lights glow when tiny particles from the Sun crash into the air high above the Earth.',
+  caribou: 'Caribou (called reindeer in Europe) walk thousands of kilometres every year, one of the longest migrations of any land animal.',
+  monkey: 'Capuchin monkeys are very clever. Some even use stones as tools to crack nuts. Harpy eagles are one of their biggest dangers, so they keep a lookout.',
+  sloth: 'Sloths move so slowly that green algae grows in their fur, which helps hide them in the trees. Harpy eagles snatch them off the branches.',
+  bat: 'Bats find their way in the dark by echolocation: they make high squeaks and listen for the echoes. The bat falcon is named after the bats it catches at dusk.',
+  lmChurch: 'Peregrines love tall buildings because they are like cliffs. Some nest on church and cathedral towers.',
+  lmSummit: 'Up high the air is thinner, so it is harder for wings to grip it. Birds of prey save energy by soaring on thermals instead of flapping.',
+  lmTemple: 'Ancient stone temples are hidden all over the rainforests of Central and South America. The jungle slowly grows back over them.',
+  lmFalls: 'The world\'s highest waterfall, Angel Falls in Venezuela, pours off a flat-topped mountain called a tepui. It is nearly 1 km tall.',
+  lmTepui: 'Tepuis are flat-topped mountains with sheer cliffs. Some plants and animals live on top of them and nowhere else on Earth.',
+  lmOxbow: 'An oxbow lake forms when a river cuts through a loop of its own bend, leaving a curved lake behind.',
+  lmKapok: 'Kapok trees can grow over 60 m tall, poking out above the rest of the rainforest. Harpy eagles love to nest in them.',
+  lmHut: 'Scientists in the Arctic study animals like snowy owls and lemmings to find out how the far north is changing.',
+  lmInuk: 'An inukshuk is a stone landmark built by the Inuit people of the Arctic. They help travellers find their way across the tundra.',
+  lmLake: 'The tundra is dotted with thousands of shallow lakes. Under the ground is permafrost, soil that stays frozen all year.',
+  lmGlacier: 'Glaciers are rivers of ice that flow very slowly downhill, carving out valleys as they go.',
 };
+const BIOME_FACTS = {
+  rainforest: {
+    pigeon: 'Scarlet macaws can live for over 50 years. They crack hard nuts with their huge hooked beaks.',
+    crow: 'A toucan\'s giant beak is very light, made of keratin like your fingernails. It also helps the toucan lose heat on hot days.',
+    finch: 'Parakeets are small parrots. They fly fast in noisy flocks, screeching to keep together.',
+    teal: 'Muscovy ducks nest in holes in trees, high above the forest floor.',
+    grouse: 'Tinamous are shy ground birds that hide on the dark forest floor. Their glossy eggs look like polished china.',
+    shrew: 'Anole lizards can change colour from green to brown, and the males flash a bright throat flap to show off.',
+    eel: 'Electric eels can give a shock of hundreds of volts, enough to knock over a horse. They are really a kind of knifefish, not a true eel.',
+    hare: 'Agoutis are rainforest rodents. They bury seeds to eat later and forget some, which helps plant new trees.',
+    fish: 'Peacock bass have a dark "eye" spot on their tail, which may confuse animals that attack them.',
+    carrion: 'In the hot rainforest, vultures and other scavengers clear up dead animals very quickly.',
+    eagle: 'The harpy eagle is the most powerful eagle in the Americas. It will attack other birds of prey that come near its nest.',
+    fox: 'Jaguars are the biggest cats in the Americas. Unlike most cats they love water, and they are strong swimmers.',
+  },
+  arctic: {
+    pigeon: 'Snow geese fly thousands of kilometres every year between the Arctic, where they nest, and the warmer south.',
+    crow: 'Ravens are some of the cleverest birds on Earth. In the Arctic they follow wolves and polar bears to share their leftovers.',
+    finch: 'Snow buntings nest further north than almost any other songbird, tucked into cracks between rocks.',
+    teal: 'Long-tailed ducks can dive as deep as 60 m to find food, deeper than almost any other duck.',
+    grouse: 'Ptarmigan have feathered feet like snowshoes, and turn white in winter to hide in the snow.',
+    shrew: 'Lemming numbers rise and crash every 3 to 5 years. In a good lemming year, snowy owls can raise lots of chicks.',
+    eel: 'Arctic grayling have a huge sail-like fin on their back, and they rise to snap insects off the surface.',
+    hare: 'Arctic hares can hop along on just their back legs, like a kangaroo, and run at about 60 km/h.',
+    fish: 'Arctic char live further north than any other freshwater fish. The males turn bright red in autumn.',
+    carrion: 'In the Arctic nothing goes to waste. Foxes, ravens and birds of prey all share the leftovers from wolf kills.',
+    eagle: 'Golden eagles live in the Arctic too, and they will attack other birds of prey.',
+    fox: 'Arctic foxes have such thick fur that they can survive at minus 50°C. Their coat turns white in winter.',
+  },
+};
+Object.assign(FACTS, BIOME_FACTS[BIOME] || {});
 const PEREGRINE_MISSIONS = [
   { title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact: 'thermal' },
   { title: 'Touch down', text: () => `Hold ${KEY.brake} to brake below ${spd(60)}, then land gently on the ground, a tree top or your nest.`, done: s => s.landings >= 1, fact: 'landing' },
@@ -834,6 +1213,44 @@ const MISSION_SETS = {
     Q.master('Master of the Woods', 'sleep'),
   ],
 };
+Object.assign(MISSION_SETS, {
+  harpy: [
+    Q.land('hpNest'),
+    { title: 'Keen sight', text: () => `Press ${KEY.skill} to spot monkeys and sloths in the treetops.`, done: s => s.scans >= 1, fact: 'hpTalons' },
+    { title: 'Canopy ambush', text: () => 'Catch a capuchin monkey. Skim in low over the treetops so it doesn\'t see you coming.', done: s => s.monkey >= 1, fact: 'monkey' },
+    Q.feed('hpChick'),
+    { title: 'Slow food', text: () => 'Find a sloth sitting on top of a tree and snatch it.', done: s => s.sloth >= 1, fact: 'sloth' },
+    Q.roost('hpCanopy'),
+    Q.master('Ruler of the Canopy', 'hpPanama'),
+  ],
+  batfalcon: [
+    Q.thermal('bfPerch'),
+    { title: 'Little arrow', text: () => `Climb high, then hold ${KEY.dive} to dive faster than ${spd(150)}.`, done: s => s.topSpeed >= 150, fact: 'bfSmall' },
+    { title: 'Parakeet chase', text: () => 'Catch a green parakeet above the treetops.', done: s => s.finch >= 1, fact: 'finch' },
+    Q.feed('bfNest'),
+    { title: 'Dusk hunter', text: () => 'When the sun sets, bats come out over the river. Catch one!', done: s => s.bat >= 1, fact: 'bat' },
+    Q.roost('sleep'),
+    Q.master('Shadow of the Dusk', 'bfEat'),
+  ],
+  snowyowl: [
+    { title: 'Listen', text: () => `Hold ${KEY.skill} to listen for lemmings hidden in the tundra.`, done: s => s.listenTime >= 3, fact: 'soHear' },
+    { title: 'Lemming hunt', text: () => 'Catch a lemming. Glide in low and slow, then pounce.', done: s => s.shrew >= 1, fact: 'shrew' },
+    Q.feed('soNest'),
+    { title: 'Ptarmigan', text: () => 'Ptarmigan sit still on the open tundra. Fly close to flush them, then catch one.', done: s => s.grouse >= 1, fact: 'grouse' },
+    Q.drink('soDay'),
+    Q.roost('soLemm'),
+    Q.master('Ghost of the Tundra', 'aurora'),
+  ],
+  gyr: [
+    Q.thermal('gyCold'),
+    { title: 'The stoop', text: () => `Climb high, then hold ${KEY.dive} to dive faster than ${spd(180)}.`, done: s => s.topSpeed >= 180, fact: 'gyBig' },
+    { title: 'Ptarmigan chase', text: () => 'Catch a rock ptarmigan. Flush it, then chase it low and fast and strike from behind.', done: s => s.grouse >= 1, fact: 'gyPtarm' },
+    Q.feed('gyNest'),
+    { title: 'Duck dash', text: () => 'Catch a long-tailed duck when it springs up off a lake or the river.', done: s => s.teal >= 1, fact: 'teal' },
+    Q.roost('caribou'),
+    Q.master('Lord of the North', 'sleep'),
+  ],
+});
 const missions = () => MISSION_SETS[spId];
 
 // ---------- player falcon ----------
@@ -842,7 +1259,7 @@ let LEG = 0.5;  // how high the body sits above the ground when standing
 let SIZE = 1;   // current wingspan in metres, used to place the camera
 // Young birds leave the nest close to adult size; they fill out over their first year.
 // Here you start at 90% and reach full adult size at the top level.
-const growth = () => 0.9 + 0.1 * clamp(prog.xp / LEVELS[LEVELS.length - 1].xp, 0, 1);
+const growth = () => 0.9 + 0.1 * clamp(prog.xp / LEVELS[4].xp, 0, 1);
 function applyGrowth() {
   if (!falcon) return;
   const g = growth();
@@ -851,7 +1268,7 @@ function applyGrowth() {
 }
 const wingspanText = () => (falcon.span * growth()).toFixed(2) + ' m';
 function setSpecies(id) {
-  spId = SPECIES[id] ? id : 'peregrine'; SP = SPECIES[spId];
+  spId = SPECIES[id] && SPECIES[id].world === BIOME ? id : Object.keys(SPECIES).find(k => SPECIES[k].world === BIOME); SP = SPECIES[spId];
   if (falcon) { if (F.carry) dropCarry(); scene.remove(falcon.group); }
   falcon = makeBird(LOOK[SP.look]);
   falcon.group.rotation.order = 'YXZ';
@@ -859,7 +1276,7 @@ function setSpecies(id) {
   applyGrowth();
   const n = NESTS[spId]; EX = n.x; EY = n.y; EZ = n.z; EYRIE.set(EX, EY, EZ);
   beacon.position.set(EX, EY + 170, EZ);
-  eagle.b.group.visible = spId !== 'eagle';
+  eagle.b.group.visible = spId !== THREAT.player;
   const ab = SP.ability && ABILITY[SP.ability];
   $('bSkill').hidden = !ab; if (ab) $('bSkill').textContent = ab.label;
   $('birdHead').textContent = 'Your ' + SP.name.toLowerCase();
@@ -917,11 +1334,13 @@ function pickSwimSpot(f) {
   }
   f.target.set(riverX(f.home.z), 0.08, f.home.z);
 }
-addFlock('pigeon', new V3(VX, 0, VZ), 220, 25, 70, 5);
-addFlock('pigeon', new V3(VX + 40, 0, VZ - 300), 260, 30, 80, 5);
-addFlock('pigeon', new V3(riverX(-450) + 250, 0, -450), 280, 30, 90, 5);
-addFlock('pigeon', new V3(riverX(650) + 120, 0, 650), 260, 25, 80, 4);
-addFlock('pigeon', new V3(riverX(-50) - 180, 0, -50), 200, 40, 90, 4);
+const CANOPY = BIOME === 'rainforest' ? 25 : 0;
+addFlock('pigeon', new V3(VX, 0, VZ), 220, 25 + CANOPY, 70 + CANOPY, 5);
+addFlock('pigeon', new V3(VX + 40, 0, VZ - 300), 260, 30 + CANOPY, 80 + CANOPY, 5);
+addFlock('pigeon', new V3(riverX(-450) + 250, 0, -450), 280, 30 + CANOPY, 90 + CANOPY, 5);
+addFlock('pigeon', new V3(riverX(650) + 120, 0, 650), 260, 25 + CANOPY, 80 + CANOPY, 4);
+addFlock('pigeon', new V3(riverX(-50) - 180, 0, -50), 200, 40 + CANOPY, 90 + CANOPY, 4);
+if (BIOME === 'rainforest') for (const z of [-560, -80, 420, 820]) addFlock('bat', new V3(riverX(z), 0, z), 170, 6, 22, 6);
 addFlock('teal', new V3(0, 0, -300), 450, 5, 16, 4);
 addFlock('teal', new V3(0, 0, 450), 450, 5, 16, 4);
 addFlock('teal', new V3(0, 0, -780), 300, 5, 16, 4);
@@ -943,8 +1362,10 @@ function updatePrey(dt, playing) {
     if (PREY[p.type].critter) { updateCritter(p, dt, playing); continue; }
     if (p.state === 'swim') { updateSwimmer(p, dt); continue; }
     // pigeons and crows roost at night; ducks stay active
-    if (!p.flock.restOn && roosting && p.state === 'fly' && p.pos.distanceTo(F.pos) > 120) { p.state = 'roost'; p.b.group.visible = false; continue; }
-    if (p.state === 'roost') { if (!roosting) respawnPrey(p); continue; }
+    // (bats do it the other way round: they sleep by day and fly at night)
+    const rst = PREY[p.type].nightOnly ? nightF < 0.45 : roosting;
+    if (!p.flock.restOn && rst && p.state === 'fly' && p.pos.distanceTo(F.pos) > 120) { p.state = 'roost'; p.b.group.visible = false; continue; }
+    if (p.state === 'roost') { if (!rst) respawnPrey(p); continue; }
     const T = PREY[p.type];
     p.dodgeT = Math.max(0, p.dodgeT - dt);
     tA.subVectors(p.pos, F.pos); const d = tA.length();
@@ -1024,6 +1445,10 @@ function animatePrey(p, dt) {
     // crows row along with slow, deep, even beats
     p.phase += dt * (fleeing ? 11 : 7.5);
     animWings(p.b, { ph: p.phase, amp: 0.7 });
+  } else if (p.type === 'bat') {
+    // bats flutter with quick, deep, floppy beats and twist about
+    p.phase += dt * (fleeing ? 22 : 17);
+    animWings(p.b, { ph: p.phase, amp: 1.1 });
   } else {
     // ducks whirr with fast, shallow beats
     p.phase += dt * (fleeing ? 26 : 21);
@@ -1048,12 +1473,12 @@ function respawnPrey(p) {
 // ---------- critters: shrews in the grass and eels in the river ----------
 function makeShrew() {
   const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
-  const fur = 0x5e4632, pale = 0xb8a58a;
+  const [fur, pale, nose, tailC] = CRIT.shrew;
   const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.22, 0.18, 0.42), n => n.y < -0.3 ? pale : fur)); body.position.y = 0.1; g.add(body);
   const head = new THREE.Group(); head.position.set(0, 0.11, 0.22); g.add(head);
-  head.add(M(facet(new THREE.ConeGeometry(0.07, 0.22, 5).rotateX(Math.PI / 2), (n, m) => m.z > 0.08 ? 0xd99a9a : fur)));
+  head.add(M(facet(new THREE.ConeGeometry(0.07, 0.22, 5).rotateX(Math.PI / 2), (n, m) => m.z > 0.08 ? nose : fur)));
   for (const sx of [-1, 1]) { const e = M(facet(new THREE.OctahedronGeometry(0.018, 0), () => 0x0d0d0d)); e.position.set(sx * 0.04, 0.03, 0.01); head.add(e); }
-  const tail = M(facet(new THREE.ConeGeometry(0.018, 0.2, 4).translate(0, 0.1, 0).rotateX(-Math.PI / 2), () => 0x4a3828)); tail.position.set(0, 0.08, -0.2); g.add(tail);
+  const tail = M(facet(new THREE.ConeGeometry(BIOME === 'rainforest' ? 0.03 : 0.018, BIOME === 'rainforest' ? 0.4 : BIOME === 'arctic' ? 0.05 : 0.2, 4).translate(0, 0.1, 0).rotateX(-Math.PI / 2), () => tailC)); tail.position.set(0, 0.08, -0.2); g.add(tail);
   g.scale.setScalar(0.4);
   g.traverse(m => { if (m.isMesh) m.castShadow = true; });
   return { group: g, scale: 0.4, wings: [], legs: { visible: false }, head };
@@ -1062,7 +1487,7 @@ function makeEel() {
   const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat), segs = [];
   for (let i = 0; i < 8; i++) {
     const k = 1 - i * 0.085;
-    const sg = M(facet(new THREE.OctahedronGeometry(1, 0).scale(0.07 * k, 0.06 * k, 0.14), n => n.y < -0.2 ? 0xc9b98a : 0x4b5a2c));
+    const sg = M(facet(new THREE.OctahedronGeometry(1, 0).scale(0.07 * k, 0.06 * k, 0.14), n => n.y < -0.2 ? CRIT.eel[1] : CRIT.eel[0]));
     sg.position.z = 0.7 - i * 0.2; g.add(sg); segs.push(sg);
   }
   for (const sx of [-1, 1]) { const e = M(facet(new THREE.OctahedronGeometry(0.02, 0), () => 0x0d0d0d)); e.position.set(sx * 0.05, 0.03, 0.78); g.add(e); }
@@ -1071,12 +1496,12 @@ function makeEel() {
 }
 function makeHare() {
   const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
-  const fur = 0x8a6a48, pale = 0xd8c8a8;
+  const [fur, pale, earTip] = CRIT.hare;
   const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.36, 0.34, 0.62), n => n.y < -0.3 ? pale : fur)); body.position.y = 0.3; g.add(body);
   const head = new THREE.Group(); head.position.set(0, 0.5, 0.3); g.add(head);
   head.add(M(facet(new THREE.IcosahedronGeometry(0.15, 0).scale(0.9, 0.9, 1.2), () => fur)));
   for (const sx of [-1, 1]) {
-    const ear = M(facet(new THREE.BoxGeometry(0.05, 0.3, 0.08).translate(0, 0.15, 0), (n, m) => m.y > 0.24 ? 0x222222 : fur)); ear.position.set(sx * 0.05, 0.08, -0.04); ear.rotation.set(-0.35, 0, sx * 0.15); head.add(ear);
+    const ear = M(facet(new THREE.BoxGeometry(0.05, 0.3, 0.08).translate(0, 0.15, 0), (n, m) => m.y > 0.24 ? earTip : fur)); ear.position.set(sx * 0.05, 0.08, -0.04); ear.rotation.set(-0.35, 0, sx * 0.15); head.add(ear);
     const e = M(facet(new THREE.OctahedronGeometry(0.025, 0), () => 0x1a1208)); e.position.set(sx * 0.1, 0.03, 0.07); head.add(e);
   }
   const tail = M(facet(new THREE.IcosahedronGeometry(0.07, 0), () => 0xf4f0e8)); tail.position.set(0, 0.36, -0.32); g.add(tail);
@@ -1087,24 +1512,25 @@ function makeFish() {
   const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat), segs = [];
   for (let i = 0; i < 4; i++) {
     const k = [0.8, 1, 0.8, 0.5][i];
-    const sg = M(facet(new THREE.OctahedronGeometry(1, 0).scale(0.06 * k, 0.1 * k, 0.16), (n, m) => n.y < -0.3 ? 0xe8dcc0 : (i + Math.floor(m.z * 30)) % 3 === 0 ? 0x3a2a1a : 0x7a6a48));
+    const sg = M(facet(new THREE.OctahedronGeometry(1, 0).scale(0.06 * k, 0.1 * k, 0.16), (n, m) => n.y < -0.3 ? CRIT.fish[2] : (i + Math.floor(m.z * 30)) % 3 === 0 ? CRIT.fish[1] : CRIT.fish[0]));
     sg.position.z = 0.3 - i * 0.2; g.add(sg); segs.push(sg);
   }
-  const fin = M(facet(new THREE.ConeGeometry(0.1, 0.14, 3).rotateX(-Math.PI / 2).scale(0.3, 1, 1), () => 0x6a5a3a)); fin.position.z = -0.4; g.add(fin); segs.push(fin);
+  const fin = M(facet(new THREE.ConeGeometry(0.1, 0.14, 3).rotateX(-Math.PI / 2).scale(0.3, 1, 1), () => CRIT.fish[3])); fin.position.z = -0.4; g.add(fin); segs.push(fin);
   g.scale.setScalar(0.45);
   return { group: g, scale: 0.45, wings: [], legs: { visible: false }, segs };
 }
 function makeCarrion() {
   const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
-  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.3, 0.2, 0.55), n => n.y > 0.4 ? 0xb0a08a : 0x8a7a68)); body.position.y = 0.1; body.rotation.z = 1.2; g.add(body);
-  const head = M(facet(new THREE.IcosahedronGeometry(0.13, 0), () => 0x8a7a68)); head.position.set(0.05, 0.1, 0.3); g.add(head);
-  for (const sx of [-1, 1]) { const ear = M(facet(new THREE.BoxGeometry(0.05, 0.03, 0.22), () => 0x7a6a58)); ear.position.set(0.08 + sx * 0.05, 0.06, 0.45); g.add(ear); }
+  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.3, 0.2, 0.55), n => n.y > 0.4 ? CRIT.carrion[1] : CRIT.carrion[0])); body.position.y = 0.1; body.rotation.z = 1.2; g.add(body);
+  const head = M(facet(new THREE.IcosahedronGeometry(0.13, 0), () => CRIT.carrion[0])); head.position.set(0.05, 0.1, 0.3); g.add(head);
+  for (const sx of [-1, 1]) { const ear = M(facet(new THREE.BoxGeometry(0.05, 0.03, 0.22), () => CRIT.carrion[2])); ear.position.set(0.08 + sx * 0.05, 0.06, 0.45); g.add(ear); }
   g.scale.setScalar(0.5);
   return { group: g, scale: 0.5, wings: [], legs: { visible: false } };
 }
 function surfaceFish(p) {
   for (let k = 0; k < 30; k++) {
-    const z = (rand() - .5) * 1800, x = riverX(z) + (rand() - .5) * 30;
+    const lake = BIOME !== 'valley' && rand() < 0.4;
+    const z = (rand() - .5) * 1800, x = lake ? (rand() - .5) * 1800 : riverX(z) + (rand() - .5) * 30;
     if (heightAt(x, z) < -1.5) { p.pos.set(x, -0.5, z); p.yaw = rand() * 6.28; p.state = 'active'; p.t = 0; p.jumpT = 2 + rand() * 4; p.b.group.visible = true; return; }
   }
   p.t = 0; p.hideFor = 3;
@@ -1134,8 +1560,8 @@ function surfaceEel(p) {
 const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 0, yaw: rand() * 6.28, moveT: 0, ran: false, respawn: 0 });
 {
   let made = 0;
-  const on = NESTS.owl, near = [[on.x + 40, on.z + 30], [on.x - 50, on.z - 20], [on.x + 10, on.z - 60], [EX + 40, EZ + 30], [EX - 60, EZ - 50]];
-  for (let k = 0; k < 800 && made < 52; k++) {
+  const on = NESTS.owl || NESTS.snowyowl || NESTS[Object.keys(NESTS)[0]], near = [[on.x + 40, on.z + 30], [on.x - 50, on.z - 20], [on.x + 10, on.z - 60], [EX + 40, EZ + 30], [EX - 60, EZ - 50]];
+  for (let k = 0; k < 800 && made < (BIOME === 'rainforest' ? 26 : 52); k++) {
     let x, z;
     if (k < 60) { const n = near[k % near.length]; x = n[0] + (rand() - .5) * 30; z = n[1] + (rand() - .5) * 30; }
     else { x = (rand() - .5) * 1800; z = (rand() - .5) * 1800; }
@@ -1147,10 +1573,10 @@ const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 
   }
   // mountain hares on the high moors, some near the eagle's crag
   made = 0;
-  for (let k = 0; k < 3000 && made < 32; k++) {
-    const nx = NESTS.eagle, near = k < 500;
+  for (let k = 0; k < 3000 && made < (BIOME === 'rainforest' ? 20 : 32); k++) {
+    const nx = NESTS.eagle || NESTS.gyr || NESTS.harpy, near = k < 500;
     const x = near ? nx.x + (rand() - .5) * 300 : (rand() - .5) * 1900, z = near ? nx.z + (rand() - .5) * 300 : (rand() - .5) * 1900, h = heightAt(x, z);
-    if (h < 100 || h > THIN_AIR - 30 || slopeAt(x, z) < 0.8 || Math.hypot(x, z) > 1000) continue;
+    if (h < (BIOME === 'valley' ? 100 : 4) || h > THIN_AIR - 30 || slopeAt(x, z) < 0.8 || Math.hypot(x, z) > 1000) continue;
     if (near && made >= 10) continue;
     const b = makeHare(); scene.add(b.group);
     prey.push({ type: 'hare', b, pos: new V3(x, h, z), home: new V3(x, 0, z), state: 'active', ...critterBase() });
@@ -1171,10 +1597,81 @@ const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 
     const p = { type: 'eel', b, pos: new V3(), home: new V3(), state: 'hidden', ...critterBase() };
     hideCritter(p, rand() * 12, false); prey.push(p);
   }
+  if (BIOME === 'rainforest') {
+    const hn = NESTS.harpy;
+    for (let i = 0; i < 40; i++) {
+      const type = i < 28 ? 'monkey' : 'sloth', b = type === 'monkey' ? makeMonkey() : makeSloth(); scene.add(b.group);
+      const home = i % 4 === 0 ? new V3(hn.x + (rand() - .5) * 200, 0, hn.z + (rand() - .5) * 200) : new V3((rand() - .5) * 1800, 0, (rand() - .5) * 1800);
+      const p = { type, b, pos: new V3(), home, state: 'active', ...critterBase() };
+      placeOnCanopy(p); prey.push(p);
+    }
+  }
+}
+// monkeys and sloths live up in the treetops
+function makeMonkey() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat), fur = 0x5a3a20, pale = 0xf0e0c0;
+  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.36, 0.42, 0.3), () => fur)); body.position.y = 0.32; g.add(body);
+  const head = new THREE.Group(); head.position.set(0, 0.62, 0.05); g.add(head);
+  head.add(M(facet(new THREE.IcosahedronGeometry(0.14, 0), (n) => n.z > 0.3 || n.y < -0.4 ? pale : fur)));
+  const cap = M(facet(new THREE.IcosahedronGeometry(0.1, 0).scale(1, 0.5, 1), () => 0x1e140c)); cap.position.set(0, 0.1, -0.01); head.add(cap);
+  for (const sx of [-1, 1]) {
+    const e = M(facet(new THREE.OctahedronGeometry(0.025, 0), () => 0x111111)); e.position.set(sx * 0.05, 0.03, 0.12); head.add(e);
+    const arm = M(facet(new THREE.BoxGeometry(0.07, 0.34, 0.07).translate(0, -0.17, 0), () => fur)); arm.position.set(sx * 0.17, 0.5, 0.05); arm.rotation.x = -0.5; g.add(arm);
+    const leg = M(facet(new THREE.BoxGeometry(0.08, 0.26, 0.08).translate(0, -0.13, 0), () => fur)); leg.position.set(sx * 0.1, 0.18, 0); leg.rotation.x = -1.2; g.add(leg);
+  }
+  const tail = M(facet(new THREE.ConeGeometry(0.035, 0.7, 4).translate(0, 0.35, 0).rotateX(-2.2), () => fur)); tail.position.set(0, 0.2, -0.12); g.add(tail);
+  g.scale.setScalar(0.85); g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return { group: g, scale: 0.85, wings: [], legs: { visible: false }, head };
+}
+function makeSloth() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat), fur = 0x8a7a5a, algae = 0x6a7a4a, face = 0xe8dcc0;
+  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.5, 0.42, 0.62), (n, m) => n.y > 0.3 && Math.sin(m.x * 30) > 0.2 ? algae : fur)); body.position.y = 0.26; g.add(body);
+  const head = new THREE.Group(); head.position.set(0, 0.38, 0.34); g.add(head);
+  head.add(M(facet(new THREE.IcosahedronGeometry(0.14, 0), n => n.z > 0.35 ? face : fur)));
+  for (const sx of [-1, 1]) {
+    const mask = M(facet(new THREE.OctahedronGeometry(0.04, 0).scale(1.4, 0.7, 0.5), () => 0x2a2018)); mask.position.set(sx * 0.055, 0.02, 0.12); head.add(mask);
+    for (const fz of [0.22, -0.2]) { const limb = M(facet(new THREE.BoxGeometry(0.08, 0.08, 0.36), () => fur)); limb.position.set(sx * 0.24, 0.12, fz); limb.rotation.y = sx * (fz > 0 ? 0.6 : -0.6); g.add(limb); }
+  }
+  g.scale.setScalar(0.9); g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return { group: g, scale: 0.9, wings: [], legs: { visible: false }, head };
+}
+
+function placeOnCanopy(p) {
+  const canopyTrees = placeOnCanopy.trees || (placeOnCanopy.trees = TREES.filter(t => t.kind === "oak" && !t.giant));
+  let t = null;
+  for (let k = 0; k < 40; k++) { const c = canopyTrees[Math.floor(rand() * canopyTrees.length)]; if (!t || Math.hypot(c.x - p.home.x, c.z - p.home.z) < Math.hypot(t.x - p.home.x, t.z - p.home.z)) t = c; }
+  p.tree = t; p.spot = { a: rand() * 6.28, r: rand() * t.r * 0.15 };
+  p.pos.set(t.x + Math.cos(p.spot.a) * p.spot.r, t.perchY - 0.25, t.z + Math.sin(p.spot.a) * p.spot.r);
+  p.state = 'active'; p.t = 0; p.fleeT = 0; p.ran = false; p.b.group.visible = true;
+  p.b.group.position.copy(p.pos); p.b.group.rotation.set(0, p.yaw, 0);
+}
+function updateCanopy(p, dt, playing) {
+  if (p.state === 'hidden') { if (p.t > p.hideFor) placeOnCanopy(p); return; }
+  const d = Math.hypot(F.pos.x - p.pos.x, F.pos.z - p.pos.z), above = F.pos.y - p.pos.y;
+  if (p.type === 'monkey') {
+    // capuchins keep a lookout: a bird coming in high and noisy is spotted, and they drop down into the leaves
+    if (playing && F.mode === 'fly' && d < (SP.silent ? 8 : 24) && above > 3 && above < 35 && !p.ran) { p.ran = true; p.fleeT = 1.4; whoosh(0.15, 1500); }
+    if (p.fleeT > 0) { p.fleeT -= dt; if (p.fleeT <= 0) { hideCritter(p, 10 + rand() * 10, false); return; } }
+    p.moveT -= dt;
+    if (p.moveT < -2) { p.moveT = 0.6 + rand(); p.yaw += (rand() - .5) * 3; }
+    const speed = p.fleeT > 0 ? 2.5 : p.moveT > 0 ? 0.7 : 0;
+    p.spot.r = clamp(p.spot.r + speed * dt * 0.5, 0, p.tree.r * 0.25);
+    p.spot.a += speed * dt * 0.4;
+    p.pos.set(p.tree.x + Math.cos(p.spot.a) * p.spot.r, p.tree.perchY - 0.25 - (p.fleeT > 0 ? (1.4 - p.fleeT) * 1.5 : 0), p.tree.z + Math.sin(p.spot.a) * p.spot.r);
+    p.b.group.position.copy(p.pos); if (speed) p.b.group.position.y += Math.abs(Math.sin(p.t * 14)) * 0.08;
+    p.b.group.rotation.set(0, p.yaw, 0);
+    p.b.head.rotation.y = speed ? 0 : Math.sin(p.t * 1.7) * 0.8;
+  } else {
+    // sloths hardly move at all
+    p.yaw += dt * 0.03; p.b.group.rotation.set(0, p.yaw, 0);
+    p.b.head.rotation.y = Math.sin(p.t * 0.3) * 0.4;
+  }
+  p.vel.set(0, 0, 0);
 }
 function updateCritter(p, dt, playing) {
   p.t += dt; p.dodgeT = Math.max(0, p.dodgeT - dt);
   if (p.type === 'carrion') return;
+  if (p.type === 'monkey' || p.type === 'sloth') { updateCanopy(p, dt, playing); return; }
   if (p.type === 'hare') { updateHare(p, dt, playing); return; }
   if (p.type === 'fish') { updateFish(p, dt); return; }
   if (p.type === 'shrew') {
@@ -1255,11 +1752,13 @@ function orientFlyer(o, dt) {
   o.b.group.position.copy(o.pos); o.b.group.lookAt(tC.copy(o.pos).add(o.vel)); o.b.group.rotateZ(o.bank);
 }
 // golden eagle: patrols the western moors by day and hunts you if it spots you in the air
-const eagle = { b: makeBird(LOOK.eagle), pos: new V3(), vel: new V3(10, 0, 0), state: 'patrol', t: 0, cool: 40, huntT: 0, ph: 0, center: new V3(riverX(-600) - 470, 400, -600) };
+// in the rainforest the big hunter is a harpy eagle instead
+const THREAT = BIOME === 'rainforest' ? { look: 'harpy', name: 'harpy eagle', player: 'harpy' } : { look: 'eagle', name: 'golden eagle', player: 'eagle' };
+const eagle = { b: makeBird(LOOK[THREAT.look]), pos: new V3(), vel: new V3(10, 0, 0), state: 'patrol', t: 0, cool: 40, huntT: 0, ph: 0, center: new V3(riverX(-600) - 470, 400, -600) };
 eagle.pos.copy(eagle.center).add(new V3(260, 0, 0));
 scene.add(eagle.b.group);
 function updateEagle(dt) {
-  if (spId === 'eagle') { eagle.b.group.visible = false; return; }
+  if (spId === THREAT.player) { eagle.b.group.visible = false; return; }
   const E = eagle; E.t += dt; E.cool -= dt;
   const awake = nightF < 0.5;
   E.b.group.visible = awake;
@@ -1273,14 +1772,14 @@ function updateEagle(dt) {
     steer(E, tA, 16, 0.8, dt);
     if (exposed && d < 280 && E.cool <= 0) {
       E.state = 'hunt'; E.huntT = 0;
-      toast('A golden eagle is hunting you! Stoop away fast or hide in the trees.', 'bad', 4000); sfx.eagle(); showFactOnce('eagle');
+      toast(`A ${THREAT.name} is hunting you! Stoop away fast or hide in the trees.`, 'bad', 4000); sfx.eagle(); showFactOnce('eagle');
     }
   } else if (E.state === 'hunt') {
     E.huntT += dt;
     tA.copy(F.pos).addScaledVector(F.fwd, F.speed * 0.35);
     steer(E, tA, 31, 2.2, dt);
     if (d < 3.6 && F.mode === 'fly') {
-      injure(40, 'The golden eagle struck you!');
+      injure(40, `The ${THREAT.name} struck you!`);
       if (F.carry) { toast('The eagle stole your prey!', 'bad'); dropCarry(); }
       F.speed = 10; F.pitch = -0.3; E.state = 'leave'; E.cool = 90;
     } else if (!exposed || E.huntT > 25 || d > 450) {
@@ -1300,24 +1799,35 @@ function updateEagle(dt) {
 }
 // red grouse live in groups on the heather moors
 {
-  const moorFlock = (x, z) => { addFlock('grouse', new V3(x, 0, z), 160, 3, 10, 5); Object.assign(flocks[flocks.length - 1], { minH: 105, maxH: THIN_AIR - 50 }); pickSwimSpot(flocks[flocks.length - 1]); flocks[flocks.length - 1].members.forEach(p => { p.pos.copy(flocks[flocks.length - 1].target).add(p.offset); }); };
-  const en = NESTS.eagle;
-  moorFlock(en.x + 120, en.z + 80); moorFlock(en.x - 60, en.z - 200); moorFlock(EX - 120, EZ + 260); moorFlock(EX - 200, EZ - 300); moorFlock(riverX(600) - 420, 600);
+  const moorFlock = (x, z, minH, maxH) => { addFlock('grouse', new V3(x, 0, z), 160, 3, 10, 5); const f = flocks[flocks.length - 1]; Object.assign(f, { minH, maxH }); pickSwimSpot(f); f.members.forEach(p => { p.pos.copy(f.target).add(p.offset); }); };
+  if (BIOME === 'valley') {
+    const en = NESTS.eagle, m = (x, z) => moorFlock(x, z, 105, THIN_AIR - 50);
+    m(en.x + 120, en.z + 80); m(en.x - 60, en.z - 200); m(EX - 120, EZ + 260); m(EX - 200, EZ - 300); m(riverX(600) - 420, 600);
+  } else {
+    // tinamous on the forest floor; ptarmigan all over the tundra
+    const ns = Object.values(NESTS), m = (x, z) => moorFlock(x, z, 3, 200);
+    for (const n of ns) { m(n.x + 120, n.z + 80); m(n.x - 90, n.z - 160); }
+    m(riverX(-600) + 250, -600); m(riverX(600) - 250, 600); if (BIOME === 'arctic') { m(riverX(0) + 380, 0); m(riverX(-300) - 300, -300); }
+  }
 }
 // crows live in the woods; you can hunt them
 {
-  for (const [x, z] of [[VX - 60, VZ + 20], [riverX(-420) + 260, -420], [riverX(150) - 200, 150], [riverX(620) + 180, 620], [EX + 150, EZ + 200]]) addFlock('finch', new V3(x, 0, z), 110, 3, 16, 6);
+  for (const [x, z] of [[VX - 60, VZ + 20], [riverX(-420) + 260, -420], [riverX(150) - 200, 150], [riverX(620) + 180, 620], [EX + 150, EZ + 200]]) addFlock('finch', new V3(x, 0, z), 110, 3 + CANOPY, 16 + CANOPY, 6);
   const home = new V3(riverX(80) + 230, 0, 80);
   let best = null, bd = Infinity; for (const t of TREES) { const d = Math.hypot(t.x - home.x, t.z - home.z); if (d < bd) { bd = d; best = t; } }
   if (best) home.set(best.x, 0, best.z);
-  addFlock('crow', home, 160, 12, 45, 5);
-  addFlock('crow', new V3(riverX(-600) + 200, 0, -600), 200, 12, 45, 4);
+  addFlock('crow', home, 160, 12 + CANOPY, 45 + CANOPY, 5);
+  addFlock('crow', new V3(riverX(-600) + 200, 0, -600), 200, 12 + CANOPY, 45 + CANOPY, 4);
 }
 // foxes: roam the fields and pounce on a bird that is on the ground
+// a jaguar in the rainforest, an arctic fox on the tundra
+const PRED = BIOME === 'rainforest' ? { name: 'jaguar', body: 0xd89a3a, belly: 0xf0e0c0, dark: 0x2a2018, spots: true, scale: 1.25 }
+  : BIOME === 'arctic' ? { name: 'arctic fox', body: 0xe8e8e2, belly: 0xffffff, dark: 0x3a3a3a, scale: 0.68 }
+  : { name: 'fox', body: 0xc9652a, belly: 0xf3ede2, dark: 0x2a2220, scale: 0.75 };
 function makeFox() {
   const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
-  const orange = 0xc9652a, white = 0xf3ede2, dark = 0x2a2220;
-  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.55, 0.55, 1.5), n => n.y < -0.4 ? white : orange)); body.position.y = 0.58; g.add(body);
+  const orange = PRED.body, white = PRED.belly, dark = PRED.dark;
+  const body = M(facet(new THREE.IcosahedronGeometry(0.5, 0).scale(0.55, 0.55, 1.5), (n, m) => n.y < -0.4 ? white : PRED.spots && Math.sin(m.x * 37 + m.z * 11) * Math.sin(m.z * 23) > 0.35 ? dark : orange)); body.position.y = 0.58; g.add(body);
   const head = new THREE.Group(); head.position.set(0, 0.8, 0.74); g.add(head);
   head.add(M(facet(new THREE.IcosahedronGeometry(0.22, 0).scale(1, 0.9, 1.1), n => n.y < -0.3 ? white : orange)));
   const snout = M(facet(new THREE.ConeGeometry(0.1, 0.32, 4).rotateX(Math.PI / 2), (n, m) => m.z > 0.1 ? dark : orange)); snout.position.set(0, -0.04, 0.27); head.add(snout);
@@ -1333,7 +1843,7 @@ function makeFox() {
     lg.add(M(facet(new THREE.BoxGeometry(0.09, 0.44, 0.09).translate(0, -0.22, 0), () => dark)));
     legs.push(lg);
   }
-  g.scale.setScalar(0.75);
+  g.scale.setScalar(PRED.scale);
   g.traverse(m => { if (m.isMesh) m.castShadow = true; });
   return { g, legs, tail, head };
 }
@@ -1356,12 +1866,12 @@ function updateFox(f, dt) {
       f.t = 0;
     }
     goal = f.target; speed = 1.8;
-    if (prey_ && d < 90 && f.cool <= 0) { f.state = 'hunt'; f.lostT = 0; toast('A fox is stalking you! Take off!', 'bad', 3500); showFactOnce('fox'); }
+    if (prey_ && d < 90 && f.cool <= 0) { f.state = 'hunt'; f.lostT = 0; toast(`A ${PRED.name} is stalking you! Take off!`, 'bad', 3500); showFactOnce('fox'); }
   } else if (f.state === 'hunt') {
     goal = F.pos; speed = 9.5;
     if (d < 1.1 && F.mode === 'ground') {
-      injure(30, 'A fox pounced on you!');
-      if (F.carry) { toast('The fox stole your prey!', 'bad'); dropCarry(); }
+      injure(30, `A ${PRED.name} pounced on you!`);
+      if (F.carry) { toast(`The ${PRED.name} stole your prey!`, 'bad'); dropCarry(); }
       if (F.health > 0 && F.mode === 'ground') { F.mode = 'fly'; F.speed = 10; F.pitch = 0.7; F.pos.y += 1.5; F.stunT = 0; F.tuck = 0; }
       f.state = 'retreat'; f.cool = 25; f.t = 0;
     }
@@ -1639,7 +2149,7 @@ function toast(msg, cls = '', ms = 2600) {
   setTimeout(() => el.remove(), ms);
 }
 let factTimer = null;
-function showFact(key, head = 'Falcon fact') {
+function showFact(key, head = 'Bird fact') {
   $('factHead').textContent = head; $('factText').textContent = FACTS[key]; $('fact').hidden = false;
   clearTimeout(factTimer); factTimer = setTimeout(() => { $('fact').hidden = true; }, 14000);
 }
@@ -1660,6 +2170,10 @@ const HUNT_TIPS = {
   osprey: 'Ospreys fish. Hover (hold Q) over the river until you see a trout, then let go and dive feet-first into the water.',
   kite: 'Red kites are scavengers. Press Q to scan for dead rabbits, then glide down slowly to pick one up.',
   hawk: 'Sparrowhawks ambush small birds. Fly low through the woods to stay hidden, then burst (Q) out at a flock of chaffinches.',
+  harpy: 'Harpy eagles hunt in the treetops. Press Q to spot monkeys and sloths, then skim in low over the canopy and grab them. Monkeys see you if you come in high: stay low.',
+  batfalcon: 'Bat falcons are fast little hunters. Climb high and stoop on parakeets over the trees. At dusk, bats come out over the river: chase them down!',
+  snowyowl: 'Snowy owls hunt by sound and sight. Hold Q to listen for lemmings, then glide in low and slow to pounce. Ptarmigan sit still until you get close.',
+  gyr: 'Gyrfalcons chase prey low over the ground. Fly close to ptarmigan to flush them, then chase hard and strike from behind.',
 };
 const tipSeen = {};
 let tipCool = 20, slowT = 0, flapT = 0;
@@ -1700,6 +2214,7 @@ function gainXP(n) {
   const l = levelIdx();
   if (l > game.prevLevel) {
     game.prevLevel = l; const L = LEVELS[l];
+    noteLevel(l + 1, true);
     setTimeout(() => {
       toast(`Level ${l + 1}: ${L.name}`, 'big', 3500);
       if (L.skill) toast(`New skill: ${SKILLS[L.skill].name}`, 'gold', 4000);
@@ -1727,7 +2242,12 @@ function checkMissions() {
   showFact(m.fact);
   gainXP(60);
   renderMission();
-  if (prog.mission >= missions().length && !prog.done) { prog.done = true; persist(); setTimeout(() => { if (game.state === 'play') { game.paused = true; $('complete').hidden = false; } }, 2500); }
+  if (prog.mission >= missions().length && !prog.done) {
+    prog.done = true; persist();
+    $('completeTitle').textContent = m.title;
+    $('completeText').textContent = `You have finished all the ${SP.name.toLowerCase()} quests in the ${WORLDS[BIOME].name}.`;
+    setTimeout(() => { if (game.state === 'play') { game.paused = true; $('complete').hidden = false; } }, 2500);
+  }
 }
 
 // ---------- injuries ----------
@@ -1765,8 +2285,14 @@ function strikeOdds(p) {
       c = kmh < 40 ? 0.45 : kmh < 170 ? 0.88 : 0.5;
       why = kmh >= 170 ? 'Too fast! You overshot the hare.' : kmh < 40 ? 'Too slow! The hare kicked free.' : 'The hare jinked (dodged sharply sideways) and got away!';
       if (p.fleeT > 0) c -= 0.05;
+    } else if (p.type === 'monkey') {
+      c = kmh < 20 ? 0.5 : kmh < 110 ? 0.86 : 0.4;
+      why = kmh >= 110 ? 'Too fast! You overshot the monkey.' : 'The monkey grabbed a branch and swung away!';
+      if (p.fleeT > 0) c -= 0.2;
+    } else if (p.type === 'sloth') {
+      c = kmh < 90 ? 0.93 : 0.5; why = 'Too fast! You overshot. Sloths don\'t run, so take your time.';
     } else if (p.type === 'fish') {
-      c = 0.6; why = 'The trout slipped back into the deep water.';
+      c = 0.6; why = `The ${PREY.fish.name.toLowerCase()} slipped back into the deep water.`;
     } else if (p.type === 'shrew') {
       c = kmh < 15 ? 0.5 : kmh < 90 ? 0.82 : kmh < 140 ? 0.45 : 0.2;
       why = kmh >= 90 ? 'Too fast! You overshot the shrew. Swoop in slower.' : 'The shrew darted into the grass!';
@@ -1798,6 +2324,7 @@ function strikeOdds(p) {
 // what each bird is built to catch
 function dietOdds(p, c, why) {
   const diet = SP.diet[p.type] ?? 1;
+  if (has('talons')) c += 0.06;
   if (diet < 0.2) why = spId === 'osprey' ? 'Ospreys only really eat fish!' : `${SP.plural} don't really hunt ${PREY[p.type].name.toLowerCase()}s. Too ${p.type === 'hare' ? 'big' : 'tricky'} for you!`;
   return { chance: clamp(c * diet, 0.03, 0.97), why };
 }
@@ -2059,7 +2586,7 @@ function updateFlight(dt, inp) {
   if (SP.treeSafe && F.speed > 8) {
     let push = 0;
     for (const t of treesNear(F.pos.x, F.pos.z)) {
-      if (F.pos.y > t.top + 1) continue;
+      if (F.pos.y > t.top - 2.5) continue;   // skimming over the top of a tree: no need to swerve
       const dx = t.x - F.pos.x, dz = t.z - F.pos.z, ahead = dx * Math.sin(F.yaw) + dz * Math.cos(F.yaw), side = dx * Math.cos(F.yaw) - dz * Math.sin(F.yaw);
       const clear = (F.pos.y < t.base ? 1.2 : t.r * 0.9) + 0.8;
       if (ahead > 0 && ahead < 14 + F.speed * 0.6 && Math.abs(side) < clear) push += Math.sign(side || 1) * (1 - ahead / (14 + F.speed * 0.6)) * (clear - Math.abs(side) + 0.5);
@@ -2085,7 +2612,7 @@ function updateFlight(dt, inp) {
   // braking: spread wings and tail wide like air brakes and swing the feet forward
   F.braking = !!inp.brake && F.tuck < 0.5;
   F.flare = damp(F.flare, F.braking || (inp.y > 0.3 && agl < 25 && F.tuck < 0.3 && F.speed < 30) ? 1 : 0, 6, dt);
-  const openDrag = SP.drag + 0.004 * Math.max(0, -sp) + F.flare * 0.008 + (F.braking ? 0.014 : 0);
+  const openDrag = SP.drag * (has('glide') ? 0.9 : 1) + 0.004 * Math.max(0, -sp) + F.flare * 0.008 + (F.braking ? 0.014 : 0);
   const drag = lerp(openDrag, has('arrow') ? SP.arrowDrag : SP.tuckDrag, F.tuck);
   let acc = -9.8 * sp - drag * F.speed * F.speed;
   const flapping = inp.flap && canFlap && F.tuck < 0.5;
@@ -2191,10 +2718,11 @@ function updateSleep() {
 }
 function updateNeeds(dt) {
   const dh = dt * TOD.scale / HOUR, sleeping = F.mode === 'sleep', resting = F.mode !== 'fly';
-  F.food = Math.max(0, F.food - dh * (sleeping ? 2 : 4));
-  F.water = Math.max(0, F.water - dh * (sleeping ? 3 : 6.5));
+  const thrift = has('stamina') ? 0.75 : 1;
+  F.food = Math.max(0, F.food - dh * (sleeping ? 2 : 4) * thrift);
+  F.water = Math.max(0, F.water - dh * (sleeping ? 3 : 6.5) * thrift);
   if (sleeping) F.rest = Math.min(100, F.rest + dh * 22);
-  else F.rest = Math.max(0, F.rest - dh * ((nightF > 0.5) !== !!SP.nocturnal ? 7 : 4.5));
+  else F.rest = Math.max(0, F.rest - dh * ((nightF > 0.5) !== !!SP.nocturnal ? 7 : 4.5) * thrift);
   let heal = sleeping ? 30 : resting ? (F.moving ? 8 : 16) : 2;
   if (F.food < 20 || F.water < 20) heal *= 0.3;
   const hurt = (F.food <= 0 ? 8 : 0) + (F.water <= 0 ? 12 : 0);
@@ -2349,7 +2877,11 @@ function drawMini() {
   mctx.setLineDash([2, 2]); mctx.strokeStyle = 'rgba(255,234,176,.9)';
   for (const t of THERMALS) { const [x, y] = toMap(t.x, t.z); mctx.beginPath(); mctx.arc(x, y, 4, 0, 7); mctx.stroke(); }
   mctx.setLineDash([]);
-  const dotCol = { pigeon: '#ffffff', teal: '#5fe0b0', crow: '#1b1b1b', eel: '#c9b98a', finch: '#f0a088', hare: '#c08a50', fish: '#9fd0ec', carrion: '#d04030', shrew: '#e8d0a0' };
+  for (const l of LANDMARKS) {
+    const [x, y] = toMap(l.x, l.z); mctx.fillStyle = prog.found.includes(l.id) ? '#f0c02a' : 'rgba(255,255,255,.85)';
+    mctx.beginPath(); mctx.moveTo(x, y - 4); mctx.lineTo(x + 3.5, y + 2.5); mctx.lineTo(x - 3.5, y + 2.5); mctx.closePath(); mctx.fill();
+  }
+  const dotCol = { pigeon: '#ffffff', teal: '#5fe0b0', crow: '#1b1b1b', eel: '#c9b98a', finch: '#f0a088', hare: '#c08a50', fish: '#9fd0ec', carrion: '#d04030', shrew: '#e8d0a0', grouse: '#b07050', monkey: '#c08a50', sloth: '#9a9a6a', bat: '#3a2a24' };
   for (const p of prey) {
     if (!(catchable(p) || p.state === 'swim') || !dotCol[p.type]) continue;
     const diet = SP.diet[p.type] ?? 1;
@@ -2482,8 +3014,8 @@ function updateHUD() {
   }
   // threat markers
   const threats = [];
-  if (eagle.b.group.visible) { const d = eagle.pos.distanceTo(F.pos); if (d < 450) threats.push({ pos: eagle.pos, label: (eagle.state === 'hunt' ? 'EAGLE HUNTING · ' : 'Golden eagle · ') + Math.round(d) + ' m' }); }
-  for (const f of foxes) { const d = f.pos.distanceTo(F.pos); if ((f.state === 'hunt' || (F.mode === 'ground' && d < 120))) threats.push({ pos: tC.copy(f.pos).setY(f.pos.y + 1), label: (f.state === 'hunt' ? 'FOX CHARGING · ' : 'Fox · ') + Math.round(d) + ' m' }); }
+  if (eagle.b.group.visible) { const d = eagle.pos.distanceTo(F.pos); if (d < 450) threats.push({ pos: eagle.pos, label: (eagle.state === 'hunt' ? 'EAGLE HUNTING · ' : THREAT.name[0].toUpperCase() + THREAT.name.slice(1) + ' · ') + Math.round(d) + ' m' }); }
+  for (const f of foxes) { const d = f.pos.distanceTo(F.pos); if ((f.state === 'hunt' || (F.mode === 'ground' && d < 120))) threats.push({ pos: tC.copy(f.pos).setY(f.pos.y + 1), label: (f.state === 'hunt' ? PRED.name.toUpperCase() + ' CHARGING · ' : PRED.name[0].toUpperCase() + PRED.name.slice(1) + ' · ') + Math.round(d) + ' m' }); }
   for (let i = 0; i < 3; i++) {
     const el = $('mkT' + i), t = threats[i];
     el.hidden = !t;
@@ -2501,10 +3033,66 @@ function updateChicks(dt) {
   });
 }
 
+// ---------- landmarks and challenges ----------
+const LANDMARKS = (() => {
+  const L = [], add = (name, x, z, fact, y) => L.push({ id: name.toLowerCase().replace(/\W+/g, '-'), name, x, z, y: y ?? surfaceAt(x, z), fact });
+  let px = 0, pz = 0, ph = -1, lx = 0, lz = 0, lh = 99;
+  for (let x = -1000; x < 1000; x += 20) for (let z = -1000; z < 1000; z += 20) {
+    if (Math.hypot(x, z) > 1000) continue;
+    const h = heightAt(x, z);
+    if (h > ph && h < THIN_AIR - 20) { ph = h; px = x; pz = z; }
+    if (h < lh && Math.abs(x - riverX(z)) > 150) { lh = h; lx = x; lz = z; }
+  }
+  if (BIOME === 'valley') {
+    add('Village church', VX, VZ, 'lmChurch'); add('Old barn', NESTS.owl.x, NESTS.owl.z, 'oBarn'); add('Western cliffs', NESTS.peregrine.x, NESTS.peregrine.z, 'ddt');
+    add('Eagle crag', NESTS.eagle.x, NESTS.eagle.z, 'eNest'); add('Osprey tree', NESTS.osprey.x, NESTS.osprey.z, 'pBack'); add('Highest summit', px, pz, 'lmSummit');
+  } else if (BIOME === 'rainforest') {
+    add('Jungle temple', VX, VZ, 'lmTemple'); add('Great waterfall', waterfall.x, waterfall.z, 'lmFalls', (waterfall.top + waterfall.bottom) / 2); add('Tepui summit', TEPUI.x, TEPUI.z, 'lmTepui');
+    add('Oxbow lake', riverX(-650) + 190, -650, 'lmOxbow'); add('Giant kapok', NESTS.harpy.x, NESTS.harpy.z, 'lmKapok', NESTS.harpy.y); add('Highest summit', px, pz, 'lmSummit');
+  } else {
+    add('Research hut', VX, VZ, 'lmHut'); add('Inukshuk', 320, -520, 'lmInuk'); add('Gyrfalcon crag', NESTS.gyr.x, NESTS.gyr.z, 'gyNest');
+    add('Snowy owl hill', NESTS.snowyowl.x, NESTS.snowyowl.z, 'soNest'); add('Frozen lake', lx, lz, 'lmLake', 0); add('Glacier top', px, pz, 'lmGlacier');
+  }
+  return L;
+})();
+function checkLandmarks() {
+  for (const l of LANDMARKS) {
+    if (prog.found.includes(l.id) || Math.hypot(F.pos.x - l.x, F.pos.z - l.z) > 70 || Math.abs(F.pos.y - l.y) > 120) continue;
+    prog.found.push(l.id);
+    if (Math.hypot(l.x - EX, l.z - EZ) < 100) continue;   // your own home counts, but it is no surprise
+    toast(`Landmark discovered: ${l.name}! +40 XP`, 'gold', 3500); sfx.quest(); gainXP(40);
+    if (FACTS[l.fact]) showFact(l.fact, l.name);
+  }
+}
+const preyKinds = () => Object.keys(PREY).filter(k => prey.some(p => p.type === k));
+const kindsCaught = s => preyKinds().filter(k => (s[k] || 0) > 0).length;
+const totalCaught = s => preyKinds().reduce((a, k) => a + (s[k] || 0), 0);
+const CHALLENGES = [
+  { id: 'explore', name: 'Explorer', desc: () => `Discover all ${LANDMARKS.length} landmarks (white triangles on the map). Found ${prog.found.length}.`, done: () => LANDMARKS.every(l => prog.found.includes(l.id)) },
+  { id: 'variety', name: 'Varied diet', desc: s => `Catch 5 different kinds of animal. So far: ${kindsCaught(s)}.`, done: s => kindsCaught(s) >= 5 },
+  { id: 'hunter', name: 'Top predator', desc: s => `Catch 25 animals. So far: ${totalCaught(s)}.`, done: s => totalCaught(s) >= 25 },
+  { id: 'distance', name: 'Long haul', desc: s => `Fly 15 km. So far: ${(s.distance / 1000).toFixed(1)} km.`, done: s => s.distance >= 15000 },
+  { id: 'parent', name: 'Devoted parent', desc: s => `Feed your chicks 10 times. So far: ${s.fed}.`, done: s => s.fed >= 10 },
+  { id: 'survivor', name: 'Survivor', desc: () => `Survive until day 3. Now: day ${TOD.day}.`, done: () => TOD.day >= 3 },
+];
+let chalT = 0;
+function checkChallenges(dt) {
+  chalT += dt; if (chalT < 1) return; chalT = 0;
+  for (const c of CHALLENGES) if (!prog.chal.includes(c.id) && c.done(stats())) { prog.chal.push(c.id); toast(`Challenge complete: ${c.name}! +100 XP`, 'big', 3500); sfx.level(); gainXP(100); }
+}
+// new worlds open up as you level up, with any bird
+const UNLOCK_KEY = 'talon-unlocks', PENDING_KEY = 'talon-pending';
+const bestLevel = () => Math.max(1, (store.get(UNLOCK_KEY) || {}).level || 0);
+function noteLevel(n, loud) {
+  const before = bestLevel(); if (n <= before) return;
+  store.set(UNLOCK_KEY, { level: n });
+  if (loud) for (const w of Object.values(WORLDS)) if (w.unlock > before && w.unlock <= n) setTimeout(() => toast(`New world unlocked: ${w.name}! Choose it on the title screen.`, 'big', 5000), 2500);
+}
+
 // ---------- saving and loading ----------
 function snapshot() {
   return {
-    v: 2, savedAt: Date.now(), species: spId, xp: prog.xp, mission: prog.mission, stats: { ...prog.stats }, done: prog.done, facts: [...seenFacts],
+    v: 2, savedAt: Date.now(), world: BIOME, species: spId, xp: prog.xp, mission: prog.mission, stats: { ...prog.stats }, done: prog.done, facts: [...seenFacts], found: [...prog.found], chal: [...prog.chal],
     hour: TOD.hour, day: TOD.day,
     bird: { x: F.pos.x, y: F.pos.y, z: F.pos.z, yaw: F.yaw, mode: F.mode === 'sleep' ? 'perch' : F.mode, perchType: F.perchType,
       tree: F.tree ? TREES.indexOf(F.tree) : -1, health: F.health, energy: F.energy, food: F.food, water: F.water, rest: F.rest },
@@ -2512,9 +3100,12 @@ function snapshot() {
 }
 function applySnapshot(s) {
   if (!s || s.v !== 2) return false;
+  const w = WORLDS[s.world] ? s.world : 'valley';
+  if (w !== BIOME) { store.set(PENDING_KEY, s); game.travelling = true; switchWorld(w); return true; }
   if (F.carry) dropCarry();
   setSpecies(s.species || 'peregrine');
-  prog = { xp: s.xp || 0, mission: s.mission || 0, stats: { ...blankStats(), ...(s.stats || {}) }, done: !!s.done };
+  prog = { xp: s.xp || 0, mission: s.mission || 0, stats: { ...blankStats(), ...(s.stats || {}) }, done: !!s.done, found: [...(s.found || [])], chal: [...(s.chal || [])] };
+  noteLevel(levelIdx() + 1, false);
   seenFacts.clear(); (s.facts || []).forEach(k => seenFacts.add(k));
   game.prevLevel = levelIdx(); applyGrowth();
   TOD.hour = s.hour ?? 7; TOD.day = s.day ?? 1; TOD.scale = 1;
@@ -2536,7 +3127,7 @@ function applySnapshot(s) {
 }
 function persist() { if (game.state === 'play') store.set(AUTO_KEY, snapshot()); }
 function newGameState(species) {
-  applySnapshot({ v: 2, species, xp: 0, mission: 0, stats: blankStats(), hour: SPECIES[species].start, day: 1, bird: { mode: 'perch', perchType: 'nest', yaw: Math.PI / 2, health: 100, energy: 100, food: 75, water: 75, rest: 85 } });
+  applySnapshot({ v: 2, world: BIOME, species, xp: 0, mission: 0, stats: blankStats(), hour: SPECIES[species].start, day: 1, bird: { mode: 'perch', perchType: 'nest', yaw: Math.PI / 2, health: 100, energy: 100, food: 75, water: 75, rest: 85 } });
 }
 const encodeSave = s => 'TALON2:' + btoa(unescape(encodeURIComponent(JSON.stringify(s))));
 // Be forgiving: messaging apps add line breaks, spaces, quote marks or words around a pasted code.
@@ -2556,7 +3147,7 @@ function describeSave(s) {
   let l = 0; LEVELS.forEach((L, i) => { if ((s.xp || 0) >= L.xp) l = i; });
   const when = new Date(s.savedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const sp = SPECIES[s.species] ? s.species : 'peregrine', n = MISSION_SETS[sp].length;
-  return { title: `${SPECIES[sp].name} · Level ${l + 1} · Day ${s.day} ${fmtTime(s.hour)}`, sub: `Quest ${Math.min((s.mission || 0) + 1, n)} of ${n} · saved ${when}` };
+  return { title: `${SPECIES[sp].name} · Level ${l + 1} · Day ${s.day} ${fmtTime(s.hour)}`, sub: `${WORLDS[s.world || 'valley'].name} · Quest ${Math.min((s.mission || 0) + 1, n)} of ${n} · saved ${when}` };
 }
 const SLOTS = 8;
 function renderSlots(el, inPause) {
@@ -2615,11 +3206,29 @@ const BIRDS = [
   { id: 'osprey', name: 'Osprey', hab: 'Home: a dead tree by the river', blurb: 'The fish hawk. Hover over the river, then plunge feet-first to grab a trout.', skill: 'Hover: hang in one spot', s: [3, 4, 2] },
   { id: 'kite', name: 'Red Kite', hab: 'Home: a big oak in the woods', blurb: 'The best glider in the valley. A scavenger that sails for ages, looking for an easy meal.', skill: 'Scan: find food to scavenge', s: [3, 2, 3] },
   { id: 'hawk', name: 'Sparrowhawk', hab: 'Home: a tree in the woods', blurb: 'An ambush expert. Weaves between trees at speed to surprise small birds.', skill: 'Burst: a sudden sprint', s: [4, 2, 4] },
+  { id: 'harpy', name: 'Harpy Eagle', hab: 'Home: on top of a giant kapok tree', blurb: 'One of the most powerful eagles on Earth. Twist through the canopy and snatch monkeys and sloths.', skill: 'Keen sight: spot animals in the treetops', s: [2, 5, 3] },
+  { id: 'batfalcon', name: 'Bat Falcon', hab: 'Home: a dead tree by the river', blurb: 'A tiny, lightning-fast falcon. Chase parakeets by day and bats at dusk.', skill: 'Stoop (Shift / DIVE)', s: [5, 2, 3] },
+  { id: 'snowyowl', name: 'Snowy Owl', hab: 'Home: a mound on the open tundra', blurb: 'A big white owl that hunts by day. Listen for lemmings and catch ptarmigan.', skill: 'Listen: hear hidden prey', s: [2, 3, 5] },
+  { id: 'gyr', name: 'Gyrfalcon', hab: 'Home: a ledge on the northern crag', blurb: 'The biggest falcon in the world. Chase ptarmigan and ducks low over the tundra.', skill: 'Stoop (Shift / DIVE)', s: [5, 4, 2] },
 ];
-let chosen = 'peregrine';
+BIRDS.forEach(b => { b.world = SPECIES[b.id].world; });
+let chosen = BIRDS.find(b => b.world === BIOME).id;
+function renderWorlds() {
+  const best = bestLevel();
+  $('worlds').innerHTML = Object.entries(WORLDS).map(([id, w]) => {
+    const here = id === BIOME, open = here || best >= w.unlock;
+    return `<button class="card world ${here ? 'sel' : ''} ${open ? '' : 'locked'}" data-world="${id}" ${open ? '' : 'disabled'}>
+      <span class="lock">${here ? 'You are here' : open ? 'Tap to travel here' : 'Locked: reach level ' + w.unlock}</span>
+      <h3>${w.name}</h3><p class="blurb">${w.blurb}</p><p class="hab">Birds: ${BIRDS.filter(b => b.world === id).map(b => b.name).join(', ')}</p></button>`;
+  }).join('');
+}
+$('worlds').addEventListener('click', e => {
+  const c = e.target.closest('[data-world]'); if (!c || c.disabled || c.dataset.world === BIOME) return;
+  c.querySelector('.lock').textContent = 'Travelling...'; switchWorld(c.dataset.world);
+});
 const pips = n => '<span class="pips">' + [1, 2, 3, 4, 5].map(i => `<i class="${i <= n ? 'f' : ''}"></i>`).join('') + '</span>';
 function renderCards() {
-  $('cards').innerHTML = BIRDS.map(b => `
+  $('cards').innerHTML = BIRDS.filter(b => b.world === BIOME).map(b => `
   <button class="card ${b.id === chosen ? 'sel' : ''}" data-id="${b.id}" aria-pressed="${b.id === chosen}">
     <span class="lock">${b.id === chosen ? 'Selected' : 'Tap to choose'}</span>
     <h3>${b.name}</h3><p class="hab">${b.hab}</p><p class="blurb">${b.blurb}</p><p class="hab">Skill: ${b.skill}</p>
@@ -2636,8 +3245,16 @@ $('howto').innerHTML = howtoHTML; $('howto2').innerHTML = howtoHTML;
 
 function renderPause() {
   const s = stats();
-  $('statgrid').innerHTML = [['Level', `${levelIdx() + 1} · ${LEVELS[levelIdx()].name}`], ['Wingspan', `${wingspanText()} (adult ${falcon.span.toFixed(2)} m)`], ['XP', prog.xp], ['Wood pigeons', s.pigeon], ['Teal', s.teal], ['Crows', s.crow], ['Chaffinches', s.finch], ['Shrews', s.shrew], ['Hares', s.hare], ['Trout', s.fish], ['Eels', s.eel], ['Carrion', s.carrion], ['Missed strikes', s.misses], ['Stoop strikes', s.stoops], ['Chicks fed', s.fed], ['Top speed', Math.round(s.topSpeed) + ' km/h']]
+  const next = LEVELS[levelIdx() + 1];
+  $('statgrid').innerHTML = [['Level', `${levelIdx() + 1} · ${LEVELS[levelIdx()].name}`], ['XP', prog.xp + (next ? ` (level ${levelIdx() + 2} at ${next.xp})` : '')], ['Wingspan', `${wingspanText()} (adult ${falcon.span.toFixed(2)} m)`], ['World', WORLDS[BIOME].name],
+    ['Distance flown', (s.distance / 1000).toFixed(1) + ' km'], ['Missed strikes', s.misses], ['Stoop strikes', s.stoops], ['Chicks fed', s.fed], ['Top speed', spd(s.topSpeed)]]
     .map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
+  $('journal').innerHTML = preyKinds().map(k => `<span>${PREY[k].name} <b>${s[k] || 0}</b></span>`).join('');
+  $('landmarks').innerHTML = LANDMARKS.map(l => `<span>${prog.found.includes(l.id) ? '<b>' + l.name + '</b>' : '??? (not found yet)'}</span>`).join('');
+  $('challenges').innerHTML = CHALLENGES.map(c => {
+    const got = prog.chal.includes(c.id);
+    return `<div class="skill ${got ? 'got' : ''}"><small>${got ? 'Complete' : '+100 XP'}</small><b>${c.name}</b><span>${c.desc(s)}</span></div>`;
+  }).join('');
   $('skills').innerHTML = LEVELS.filter(L => L.skill).map(L => {
     const got = has(L.skill), S = SKILLS[L.skill];
     return `<div class="skill ${got ? 'got' : ''}"><small>${got ? 'Learned' : 'Unlocks at level ' + (LEVELS.indexOf(L) + 1)}</small><b>${S.name}</b><span>${S.desc}</span></div>`;
@@ -2654,6 +3271,7 @@ function togglePause(force) {
   if (game.paused) { renderPause(); persist(); }
 }
 function startPlay() {
+  if (game.travelling) { $('menu').hidden = true; $('loading').hidden = false; return; }
   initAudio();
   document.activeElement?.blur?.();
   $('menu').hidden = true; $('hud').hidden = false; $('touch').hidden = !isTouch; $('complete').hidden = true;
@@ -2663,7 +3281,10 @@ function startPlay() {
 function renderMenu() {
   const auto = store.get(AUTO_KEY);
   $('continueBtn').hidden = !auto || auto.v !== 2;
-  if (auto) $('continueBtn').textContent = 'Continue as ' + (SPECIES[auto.species] || SPECIES.peregrine).name;
+  // levels already reached in any saved game count towards unlocking worlds
+  for (const sv of [auto, ...[...Array(SLOTS)].map((_, i) => store.get(SLOT_KEY(i + 1)))]) if (sv && sv.xp) { let l = 0; LEVELS.forEach((L, i) => { if (sv.xp >= L.xp) l = i; }); noteLevel(l + 1, false); }
+  if (auto) $('continueBtn').textContent = 'Continue as ' + (SPECIES[auto.species] || SPECIES.peregrine).name + ((auto.world || 'valley') !== BIOME ? ' (' + WORLDS[auto.world || 'valley'].name + ')' : '');
+  renderWorlds();
   $('newBtn').className = auto ? 'ghost' : 'cta';
   renderCards();
   renderSlots($('menuSlots'), false);
@@ -2687,6 +3308,10 @@ $('newBtn').addEventListener('click', e => {
     osprey: `You are an osprey on your nest by the river. Hold ${KEY.skill} to hover over fish.`,
     kite: `You are a red kite in your oak. Ride the thermals and press ${KEY.skill} to scan for food.`,
     hawk: `You are a sparrowhawk in the woods. Weave through the trees and press ${KEY.skill} to burst.`,
+    harpy: `You are a young harpy eagle on your giant tree. Press ${KEY.skill} to spot monkeys and sloths in the treetops.`,
+    batfalcon: `You are a bat falcon on your dead tree by the river. Hunt parakeets now, and bats when the sun sets.`,
+    snowyowl: `You are a snowy owl on the tundra. Hold ${KEY.skill} to listen for lemmings.`,
+    gyr: `You are a young gyrfalcon on your crag. Press ${KEY.fly} to take off and hunt ptarmigan!`,
   };
   setTimeout(() => toast(intro[chosen], 'gold', 5500), 400);
 });
@@ -2727,6 +3352,8 @@ function tick() {
     poseFalcon(dt, inp);
     beacon.visible = !!F.carry;
     checkMissions();
+    if (F.mode === 'fly') stats().distance += F.speed * dt;
+    checkLandmarks(); checkChallenges(dt);
     game.autoT += dt; if (game.autoT > 10) { game.autoT = 0; persist(); }
   }
   if (game.state === 'menu' || live) {
@@ -2744,8 +3371,13 @@ function tick() {
 }
 setSpecies('peregrine');
 updateTime(0);
-$('loading').remove();
+$('loading').hidden = true;
 $('menu').hidden = false;
 renderMenu();
+{
+  const pending = store.get(PENDING_KEY);
+  try { localStorage.removeItem(PENDING_KEY); } catch (e) { }
+  if (pending && (pending.world || 'valley') === BIOME && applySnapshot(pending)) { startPlay(); afterLoad(`Welcome to the ${WORLDS[BIOME].name}!`); }
+}
 window.__talon = { F, game, prey, setSpecies, NESTS, SPECIES, get spId() { return spId; }, TREES, foxes, eagle, TOD, wind: W, windAt, heightAt, EYRIE, camera, applySnapshot, snapshot, takeOff, perchAt, landGround, doAction, settings };
 tick();

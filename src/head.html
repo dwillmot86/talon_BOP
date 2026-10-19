@@ -208,7 +208,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
 </style>
 
 <canvas id="game"></canvas>
-<div id="loading">Building the valley…</div>
+<div id="loading">Building the world…</div>
 
 <div id="hud" hidden>
   <div id="vignette"></div>
@@ -280,8 +280,10 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
   <div class="sheet">
     <div class="brand">
       <h1>Tal<em>o</em>n</h1>
-      <p>Hunt, train and rule the wild places of Britain as a bird of prey.</p>
+      <p>Hunt, train and rule the wild places of Britain and beyond as a bird of prey.</p>
     </div>
+    <h2>Choose your world</h2>
+    <div class="cards" id="worlds"></div>
     <h2>Choose your bird</h2>
     <div class="cards" id="cards"></div>
     <div class="row">
@@ -326,6 +328,12 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
     </div>
     <h2 id="birdHead">Your peregrine</h2>
     <div class="statgrid panel" id="statgrid"></div>
+    <h2>Journal: animals caught</h2>
+    <div class="statgrid panel" id="journal"></div>
+    <h2>Landmarks</h2>
+    <div class="statgrid panel" id="landmarks"></div>
+    <h2>Challenges</h2>
+    <div class="skills" id="challenges"></div>
     <h2>Skills</h2>
     <div class="skills" id="skills"></div>
     <h2>Flying tips</h2>
@@ -341,11 +349,11 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
 <div id="complete" class="overlay" hidden>
   <div class="sheet">
     <div class="brand">
-      <h1 style="font-size:clamp(40px,8vw,72px)">Lord of the <em>Valley</em></h1>
-      <p>You have mastered the peregrine's valley. That's the end of the demo quests.</p>
+      <h1 id="completeTitle" style="font-size:clamp(40px,8vw,72px)">Lord of the Valley</h1>
+      <p id="completeText">You have finished all the quests.</p>
     </div>
     <div class="panel" style="padding:14px 16px;font-size:14.5px;line-height:1.5">
-      Keep flying to level up, or tell us which bird should come next: the golden eagle in the Highlands, the barn owl hunting by sound at night, or the osprey fishing the lochs.
+      Keep flying to level up and finish the challenges in your journal (pause menu). New worlds unlock at level 3 (the Rainforest) and level 4 (the Arctic). You can also try another bird from the title screen.
     </div>
     <div class="row"><button id="keepBtn" class="cta">Keep flying</button></div>
   </div>
