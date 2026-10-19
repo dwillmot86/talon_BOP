@@ -118,6 +118,7 @@ body.touch .g.wind b{font-size:17px}
 #horizon i{position:absolute;left:-120vw;width:240vw;top:0;border-top:1px dashed rgba(255,255,255,.22)}
 #flash{position:absolute;inset:0;opacity:0;transition:opacity .5s}
 #vignette{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(10,20,30,.55) 100%)}
+#listenFx{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(20,30,90,.25) 30%,rgba(8,12,45,.7) 100%);mix-blend-mode:multiply}
 #hurt{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 50%,rgba(160,20,20,.5) 100%)}
 #sleepScreen{position:fixed;inset:0;background:rgba(5,9,24,.62);display:grid;place-content:center;justify-items:center;gap:10px;pointer-events:auto;text-align:center}
 #sleepScreen h2{font-family:var(--display);font-weight:400;font-size:40px;margin:0}
@@ -126,6 +127,7 @@ body.touch .g.wind b{font-size:17px}
 /* ---------- Touch ---------- */
 #touch{position:fixed;inset:0;pointer-events:none}
 #stickZone{position:absolute;left:0;bottom:0;width:48%;height:75%;pointer-events:auto}
+#lookZone{position:absolute;right:0;top:22%;width:40%;height:38%;pointer-events:auto}
 #stick{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(244,236,214,.45);background:rgba(13,24,26,.3);left:calc(var(--left) + 90px);top:calc(100% - var(--bottom) - 90px);pointer-events:none}
 #knob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(244,236,214,.8)}
 .tbtns{position:absolute;right:var(--right);bottom:var(--bottom);display:grid;grid-template-columns:auto auto auto;grid-template-rows:auto auto;gap:12px;align-items:end;justify-items:end;pointer-events:auto}
@@ -218,6 +220,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
 <div id="hud" hidden>
   <div id="vignette"></div>
   <div id="hurt"></div>
+  <div id="listenFx" hidden></div>
   <div id="horizon"><i></i></div>
   <div id="fpm" hidden><i></i><b></b></div>
   <div id="markers">
@@ -248,9 +251,9 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
     <div class="need" id="nRest"><span>Rest</span><div class="bar"><i></i></div></div>
   </div>
   <div id="gauges">
-    <div class="g"><b id="spd">0</b><small>km/h</small></div>
+    <div class="g"><b id="spd">0</b><small id="spdUnit">mph</small></div>
     <div class="g alt"><b id="alt">0</b><small>metres up</small></div>
-    <div class="g wind" title="Wind: the arrow shows where it is blowing, compared with where you face"><b><i id="windArrow"></i><span id="windSpd">0</span></b><small>wind km/h</small></div>
+    <div class="g wind" title="Wind: the arrow shows where it is blowing, compared with where you face"><b><i id="windArrow"></i><span id="windSpd">0</span></b><small id="windUnit">wind mph</small></div>
   </div>
   <div id="tags"></div>
   <div id="prompt" hidden></div>
@@ -268,6 +271,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
 
 <div id="touch" hidden>
   <div id="stickZone"></div>
+  <div id="lookZone"></div>
   <div id="stick"><div id="knob"></div></div>
   <div class="tbtns">
     <button id="bAct" class="tb small act" hidden>EAT</button>
@@ -315,6 +319,7 @@ kbd{font-family:var(--body);font-weight:800;font-size:12px;padding:2px 7px;borde
       <button id="levelBtn" class="ghost">Auto-level: off</button>
       <button id="soundBtn" class="ghost">Sound: on</button>
       <button id="horizonBtn" class="ghost">Horizon line: on</button>
+      <button id="unitsBtn" class="ghost">Speed: mph</button>
       <button id="camBtn" class="ghost">View: behind</button>
     </div>
     <h2>Save and load</h2>
@@ -635,7 +640,9 @@ const cloudMat = toon(0xffffff, { emissive: 0x7d8a96, emissiveIntensity: 0.35 })
 // Birds are low-poly: every triangle is flat-shaded and coloured on its own.
 const birdMat = toon(0xffffff, { vertexColors: true, side: THREE.DoubleSide });
 const fv = new V3(), fnrm = new V3(), fc = new V3();
-function facet(geo, colorFn) {
+// Polygon-art look: every triangle gets its own slightly lighter or darker shade, like a low-poly illustration.
+const facetShade = m => { const h = Math.sin(m.x * 127.1 + m.y * 311.7 + m.z * 74.7) * 43758.5453; return h - Math.floor(h) - 0.5; };
+function facet(geo, colorFn, jitter = 0.08) {
   const g = geo.index ? geo.toNonIndexed() : geo;
   g.computeVertexNormals();
   const P = g.attributes.position, cols = new Float32Array(P.count * 3), c = new THREE.Color();
@@ -643,16 +650,35 @@ function facet(geo, colorFn) {
     fnrm.fromBufferAttribute(g.attributes.normal, i);
     fc.set(0, 0, 0); for (let k = 0; k < 3; k++) fc.add(fv.fromBufferAttribute(P, i + k)); fc.multiplyScalar(1 / 3);
     c.setHex(colorFn(fnrm, fc));
+    if (jitter) c.offsetHSL(0, 0, facetShade(fc) * jitter);
     for (let k = 0; k < 3; k++) cols.set([c.r, c.g, c.b], (i + k) * 3);
   }
   g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   return g;
 }
-function bladeGeo(pts, top, under, edge) {
+// place a copy of a part, then join many parts into one mesh (fewer meshes keeps the game smooth)
+const partM = new THREE.Matrix4(), partE = new THREE.Euler();
+const place = (geo, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1) => geo.clone().applyMatrix4(partM.makeRotationFromEuler(partE.set(rx, ry, rz)).scale(new V3(sx, 1, 1)).setPosition(x, y, z));
+function mergeGeos(geos) {
+  geos = geos.filter(Boolean);
+  const n = geos.reduce((a, g) => a + g.attributes.position.count, 0);
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  let o = 0;
+  for (const g of geos) { pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); col.set(g.attributes.color.array, o * 3); o += g.attributes.position.count; }
+  const m = new THREE.BufferGeometry();
+  m.setAttribute('position', new THREE.BufferAttribute(pos, 3)); m.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); m.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return m;
+}
+function bladeGeo(pts, top, under, edge, depth = 0.022) {
   const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
-  const g = new THREE.ExtrudeGeometry(s, { depth: 0.022, bevelEnabled: false }).rotateX(Math.PI / 2);
-  return facet(g, n => n.y > 0.5 ? top : n.y < -0.5 ? under : edge);
+  const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false }).rotateX(Math.PI / 2);
+  return facet(g, typeof top === 'function' ? top : n => n.y > 0.5 ? top : n.y < -0.5 ? under : edge);
+}
+// one long pointed feather lying along +x, with optional dark bars across it
+function featherGeo(len, w, top, under, bars) {
+  const pts = [[0, w * .45], [len * .72, w * .5], [len, 0], [len * .72, -w * .5], [0, -w * .45]];
+  return bladeGeo(pts, (n, m) => n.y < -0.5 ? under : bars && Math.floor(m.x / len * 6) % 2 === 1 ? bars : top, under, top, 0.012);
 }
 // add points between profile points so belly barring has enough rows
 const densify = pts => pts.flatMap((p, i) => i < pts.length - 1 ? [p, [(p[0] + pts[i + 1][0]) / 2, (p[1] + pts[i + 1][1]) / 2]] : [p]);
@@ -663,55 +689,82 @@ function fitBird(o) {
   const len = o.headZ + Math.max(r * hz, r * (hz * .5 + bl * .92)) + bz * .4 + Math.max(...o.tail.map(p => -p[1]));
   const wantHalf = len * (o.realSpan / o.realLen) / 2;
   const stretch = (wantHalf - bx * .3) / (o.span + Math.max(...o.outer.map(p => p[0])));
-  return (o._fit = { stretch, scale: o.realLen / len });
+  // wing depth (front to back) as a share of body length: broad for owls and eagles, slimmer for falcons
+  const chordNow = Math.max(...o.inner.map(p => p[1])) - Math.min(...o.inner.map(p => p[1]));
+  const chord = (o.chord || 0.42) * len / chordNow;
+  return (o._fit = { stretch, chord, scale: o.realLen / len });
 }
+const shade = (hex, k) => new THREE.Color(hex).offsetHSL(0, 0, k).getHex();
 function birdGeos(o) {
   if (o._geo) return o._geo;
-  const [bx, by, bz] = o.body, r = o.headR, k = fitBird(o).stretch, wide = pts => pts.map(([x, y]) => [x * k, y]);
-  const body = facet(new THREE.LatheGeometry(densify(o.profile).map(([a, b]) => new THREE.Vector2(a, b)), 6).rotateX(Math.PI / 2).scale(bx, by, bz),
+  const [bx, by, bz] = o.body, r = o.headR, k = fitBird(o).stretch;
+  const body = facet(new THREE.LatheGeometry(densify(densify(o.profile)).map(([a, b]) => new THREE.Vector2(a, b)), 9).rotateX(Math.PI / 2).scale(bx, by, bz),
     (n, m) => {
       if (n.y < -0.3 && m.z > -bz * 0.35) return o.bars && Math.floor((m.z + 1) * 22) % 2 === 0 && m.z < bz * 0.3 ? o.bars : o.belly;
+      if (n.y < 0.1 && n.y >= -0.3) return shade(o.back, 0.05);
       return o.mantle && n.y > 0.6 && m.z > -bz * 0.1 ? o.mantle : o.back;
     });
-  const head = facet(new THREE.IcosahedronGeometry(r, 0).scale(...(o.headShape || [1, 0.92, 1.18])),
-    (n, m) => o.face && n.z > 0.3 ? o.face : o.cheek && n.y < -0.15 && m.z > -r * 0.2 ? o.cheek : o.nape && m.z < -r * 0.3 && n.y > 0 ? o.nape : o.head);
-  const bl = o.beakLen || 0.95;
-  const beak = facet(new THREE.ConeGeometry(r * .34, r * bl, 4).rotateX(Math.PI / 2), (n, m) => m.z > r * bl * 0.2 && o.beakTip ? o.beakTip : o.beak);
-  const cere = o.cere ? facet(new THREE.OctahedronGeometry(r * .26, 0).scale(1, .8, .9), () => o.cere) : null;
-  const malar = o.malar ? facet(new THREE.OctahedronGeometry(r * .3, 0).scale(.45, 1.5, .7), () => o.malar) : null;
-  const eye = facet(new THREE.OctahedronGeometry(r * .2, 0), () => 0x0d0d0d);
-  const ring = o.eyeRing ? facet(new THREE.OctahedronGeometry(r * .29, 0), () => o.eyeRing) : null;
-  const neck = o.neck ? facet(new THREE.OctahedronGeometry(r * .42, 0).scale(1, 1.3, 1), () => o.neck) : null;
-  const patch = o.patch ? facet(new THREE.OctahedronGeometry(r * .4, 0).scale(.7, .8, 1.9), () => o.patch) : null;
-  const tail = bladeGeo(o.tail, o.tailTop || o.wing, o.under, o.tip);
-  const inner = bladeGeo(wide(o.inner), o.wing, o.under, o.tip);
-  const outer = bladeGeo(wide(o.outer), o.tip, o.under, o.tip);
+  // the head and everything on it become one mesh
+  const hs = o.headShape || [1, 0.92, 1.18], hz = hs[2], bl = o.beakLen || 0.95;
+  const skull = facet(new THREE.IcosahedronGeometry(r, 1).scale(...hs),
+    (n, m) => o.face && n.z > 0.3 ? o.face : o.cheek && n.y < -0.15 && m.z > -r * 0.2 ? o.cheek : o.nape && m.z < -r * 0.3 && n.y > 0 ? o.nape : o.head, 0.06);
+  const beakG = facet(new THREE.ConeGeometry(r * .34, r * bl, 5).rotateX(Math.PI / 2), (n, m) => m.z > r * bl * 0.2 && o.beakTip ? o.beakTip : o.beak, 0.05);
+  const headParts = [skull, place(beakG, 0, -r * .22, r * (hz * .5 + bl * .42), o.hook ?? 0.5)];
+  if (o.cere) headParts.push(place(facet(new THREE.OctahedronGeometry(r * .26, 0).scale(1, .8, .9), () => o.cere), 0, -r * .12, r * hz * .9));
+  if (o.crest) headParts.push(place(facet(new THREE.ConeGeometry(r * .35, r * 1.3, 4).rotateX(-Math.PI / 2 - 0.5), () => o.crest), 0, r * .55, -r * .45));
+  for (const sx of [-1, 1]) {
+    const ex = sx * r * .74 * hs[0] / 0.82 * 0.82, ey = r * .2, ez = r * .5 * hz / 1.18;
+    headParts.push(place(facet(new THREE.OctahedronGeometry(r * .2, 0), () => 0x0d0d0d, 0), ex, ey, ez));
+    headParts.push(place(facet(new THREE.OctahedronGeometry(r * .055, 0), () => 0xffffff, 0), ex + sx * r * .1, ey + r * .08, ez + r * .1));
+    if (o.eyeRing) headParts.push(place(facet(new THREE.OctahedronGeometry(r * .29, 0), () => o.eyeRing, 0), ex * .93, ey * .93, ez * .93));
+    if (o.malar) headParts.push(place(facet(new THREE.OctahedronGeometry(r * .3, 0).scale(.45, 1.5, .7), () => o.malar), sx * r * .62, -r * .42, r * .38, -0.3));
+    if (o.neck) headParts.push(place(facet(new THREE.OctahedronGeometry(r * .42, 0).scale(1, 1.3, 1), () => o.neck), sx * r * .62, -r * .85, -r * .1));
+    if (o.patch) headParts.push(place(facet(new THREE.OctahedronGeometry(r * .4, 0).scale(.7, .8, 1.9), () => o.patch), sx * r * .66, r * .12, r * .05));
+  }
+  const head = mergeGeos(headParts);
+  // wings: a covert panel with individual flight feathers fanning out behind it
+  const span = o.span, outerMax = Math.max(...o.outer.map(p => p[0]));
+  const innerTrail = Math.min(...o.inner.map(p => p[1])), outerTrail = Math.min(...o.outer.map(p => p[1]));
+  const nSec = (o.secondaries ?? 5) + 2, nPri = (o.primaries ?? 6) + 1, fw = Math.max(0.07, outerMax * 0.2);
+  const secs = [...Array(nSec)].map((_, i) => {
+    const t = (i + 0.5) / nSec;
+    return place(featherGeo(Math.abs(innerTrail) * 0.85 + 0.03 + (i % 2) * 0.012, fw * 1.25, shade(o.wing, -0.06 + (i % 3) * 0.035), o.under), span * t, -0.024 - (i % 2) * 0.003, innerTrail * 0.4, 0, Math.PI / 2 - 0.1);
+  });
+  const sweep = o.fingered ? [1.25, 0.35] : o.rounded ? [1.35, 0.55] : [1.15, 0.18];
+  const pris = [...Array(nPri)].map((_, i) => {
+    const t = i / (nPri - 1), len = outerMax * (0.42 + 0.28 * t) * (o.primLen || 1);
+    return place(featherGeo(len, fw * (o.fingered && t > 0.6 ? 0.7 : 1), shade(o.tip, -0.06 + (i % 3) * 0.04), o.under), outerMax * (0.1 + 0.66 * t), -0.024 - i * 0.002, outerTrail * 0.3, 0, lerp(sweep[0], sweep[1], t));
+  });
+  const ch = fitBird(o).chord;
+  const inner = mergeGeos([bladeGeo(o.inner, o.wing, o.under, o.tip), ...secs]).scale(k, 1, ch);
+  const outer = mergeGeos([bladeGeo(o.outer, o.tip, o.under, o.tip), ...pris]).scale(k, 1, ch);
+  inner.computeVertexNormals(); outer.computeVertexNormals();
+  // tail: a fan of separate feathers
+  const tailLen = Math.max(...o.tail.map(p => -p[1])), nTail = o.tailFeathers ?? 7, tw = Math.max(...o.tail.map(p => Math.abs(p[0])));
+  const tailFs = [...Array(nTail)].map((_, i) => {
+    const a = (i / (nTail - 1) - 0.5) * (o.forked ? 0.55 : 0.45);
+    const len = tailLen * (0.95 + (o.forked ? Math.abs(a) * 1.6 : 0) - (o.rounded ? Math.abs(a) * 0.5 : 0));
+    return place(featherGeo(len, tw * 0.55, shade(o.tailTop || o.wing, -0.03 + (i % 2) * 0.05), o.under, o.tailBars), 0, 0.012, 0, 0, Math.PI / 2 + a);
+  });
+  const tail = mergeGeos([bladeGeo(o.tail, o.tailTop || o.wing, o.under, o.tip), ...tailFs]);
   const legC = o.feet || o.beak;
-  const leg = facet(new THREE.OctahedronGeometry(1, 0).scale(.028, .12, .028), () => legC);
-  const foot = facet(new THREE.OctahedronGeometry(1, 0).scale(.05, .03, .08), () => legC);
-  const talon = facet(new THREE.ConeGeometry(.012, .05, 3).rotateX(Math.PI / 2 + 0.6), () => 0x1a1a1a);
-  return (o._geo = { body, head, beak, cere, malar, eye, ring, neck, patch, tail, inner, outer, leg, foot, talon });
+  const legOne = mergeGeos([
+    place(facet(new THREE.OctahedronGeometry(1, 0).scale(.028, .12, .028), () => legC), 0, -.1, 0),
+    place(facet(new THREE.OctahedronGeometry(1, 0).scale(.05, .03, .08), () => legC), 0, -.21, .03),
+    ...[-.03, 0, .03].map(tx => place(facet(new THREE.ConeGeometry(.012, .05, 3).rotateX(Math.PI / 2 + 0.6), () => 0x1a1a1a, 0), tx, -.22, .1)),
+  ]);
+  return (o._geo = { body, head, tail, inner, outer, legOne });
 }
 function makeBird(o) {
   const G = birdGeos(o), g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat);
-  const [bx, by, bz] = o.body, r = o.headR;
+  const [bx, by, bz] = o.body;
   g.add(M(G.body));
   const head = new THREE.Group(); head.position.set(0, o.headY, o.headZ); g.add(head);
   head.add(M(G.head));
-  const hz = (o.headShape || [1, 1, 1.18])[2], bl = o.beakLen || 0.95;
-  const beak = M(G.beak); beak.position.set(0, -r * .22, r * (hz * .5 + bl * .42)); beak.rotation.x = o.hook ?? 0.5; head.add(beak);
-  if (G.cere) { const c = M(G.cere); c.position.set(0, -r * .12, r * hz * .9); head.add(c); }
-  for (const s of [-1, 1]) {
-    const e = M(G.eye); e.position.set(s * r * .74, r * .2, r * .5 * hz / 1.18); head.add(e);
-    if (G.ring) { const ring = M(G.ring); ring.position.copy(e.position).multiplyScalar(0.93); head.add(ring); }
-    if (G.malar) { const ml = M(G.malar); ml.position.set(s * r * .62, -r * .42, r * .38); ml.rotation.x = -0.3; head.add(ml); }
-    if (G.neck) { const nk = M(G.neck); nk.position.set(s * r * .62, -r * .85, -r * .1); head.add(nk); }
-    if (G.patch) { const pt = M(G.patch); pt.position.set(s * r * .66, r * .12, r * .05); head.add(pt); }
-  }
   const tail = new THREE.Group(); tail.position.set(0, 0, -bz * .4); tail.add(M(G.tail)); g.add(tail);
   const wings = [];
   const mkWing = parent => {
-    const root = new THREE.Group(); root.position.set(bx * .3, by * .22, o.wingZ); parent.add(root);
+    const root = new THREE.Group(); root.rotation.order = 'ZYX'; root.position.set(bx * .3, by * .22, o.wingZ); parent.add(root);
     root.add(M(G.inner));
     const elbow = new THREE.Group(); elbow.position.x = o.span * fitBird(o).stretch; root.add(elbow);
     elbow.add(M(G.outer));
@@ -721,13 +774,7 @@ function makeBird(o) {
   const mirror = new THREE.Group(); mirror.scale.x = -1; g.add(mirror); mkWing(mirror);
   // legs with feet and talons, shown for landing, walking, perching and carrying
   const legs = new THREE.Group();
-  for (const s of [-1, 1]) {
-    const lg = new THREE.Group(); lg.position.set(s * bx * .3, -by * .35, bz * .05);
-    const l = M(G.leg); l.position.y = -.1; lg.add(l);
-    const f = M(G.foot); f.position.set(0, -.21, .03); lg.add(f);
-    for (const tx of [-.03, 0, .03]) { const t = M(G.talon); t.position.set(tx, -.22, .1); lg.add(t); }
-    legs.add(lg);
-  }
+  for (const s of [-1, 1]) { const lg = new THREE.Group(); lg.position.set(s * bx * .3, -by * .35, bz * .05); lg.add(M(G.legOne)); legs.add(lg); }
   legs.visible = false; g.add(legs);
   const sc = fitBird(o).scale;
   g.scale.setScalar(sc);
@@ -742,12 +789,16 @@ function animWings(b, { ph = 0, amp = 0, tuck = 0, dihedral = 0, flare = 0, droo
     w.root.rotation.y = tuck * 1.05 - flare * 0.45 * open + amp * up * 0.15 * open;
     w.elbow.rotation.z = (-amp * 0.45 * s - flare * 0.25) * open - droop * 0.5;
     w.elbow.rotation.y = tuck * 1.55 + amp * up * 0.7 * open;
-    // folded at rest: the hand folds right back so the wingtips lie over the tail
-    if (fold) { w.root.rotation.y += fold * 0.35; w.root.rotation.z -= fold * 0.1; w.elbow.rotation.y += fold * 1.05; w.elbow.rotation.z += fold * 0.1; }
+    // folded at rest: the wing swings back, then turns down to lie flat against the bird's side,
+    // with the wingtips crossing over the tail
+    if (fold) {
+      w.root.rotation.set(0, lerp(w.root.rotation.y, 1.3, fold), lerp(w.root.rotation.z, -1.38, fold));
+      w.elbow.rotation.set(0, lerp(w.elbow.rotation.y, 0.25, fold), lerp(w.elbow.rotation.z, 0.08, fold));
+    }
   }
 }
 const LOOK = {
-  falcon: { realLen: 0.42, realSpan: 1.05, body: [.25, .23, 1.05], headR: .13, headY: .085, headZ: .56, wingZ: .14, span: .46,
+  falcon: { chord: 0.4, tailBars: 0x3a4658, realLen: 0.42, realSpan: 1.05, body: [.25, .23, 1.05], headR: .13, headY: .085, headZ: .56, wingZ: .14, span: .46,
     profile: [[0, -.5], [.1, -.36], [.3, -.1], [.48, .16], [.42, .34], [.24, .46], [0, .5]],
     headShape: [.82, .82, 1.32], beakLen: 1.4, cere: 0xf0c02a, malar: 0x1c2027,
     inner: [[0, .13], [.46, .05], [.46, -.12], [.36, -.16], [.27, -.13], [.18, -.17], [.09, -.14], [0, -.18]],
@@ -755,25 +806,25 @@ const LOOK = {
     tail: [[-.05, 0], [-.09, -.38], [-.05, -.45], [-.02, -.4], [0, -.46], [.02, -.4], [.05, -.45], [.09, -.38], [.05, 0]],
     back: 0x52627a, mantle: 0x46566d, belly: 0xf1e7d1, bars: 0xc9bba0, head: 0x262b34, wing: 0x5a6a82, tip: 0x2f3846, under: 0xd9d2c2,
     beak: 0x7d8a9e, beakTip: 0x2a2e35, eyeRing: 0xf0c02a, cheek: 0xf1e7d1, feet: 0xf0c02a },
-  pigeon: { realLen: 0.41, realSpan: 0.77, body: [.26, .26, .64], headR: .1, headY: .11, headZ: .37, wingZ: .06, span: .3,
+  pigeon: { chord: 0.42, primaries: 5, secondaries: 4, realLen: 0.41, realSpan: 0.77, body: [.26, .26, .64], headR: .1, headY: .11, headZ: .37, wingZ: .06, span: .3,
     profile: [[0, -.5], [.2, -.3], [.5, .05], [.44, .32], [0, .5]],
     inner: [[0, .12], [.3, .12], [.3, -.12], [.2, -.15], [.1, -.12], [0, -.14]],
     outer: [[0, .12], [.32, .04], [.38, -.06], [.31, -.09], [.28, -.15], [.2, -.11], [.15, -.16], [.08, -.11], [0, -.12]],
     tail: [[-.07, 0], [-.1, -.28], [-.04, -.24], [0, -.3], [.04, -.24], [.1, -.28], [.07, 0]],
     back: 0x8b93a3, belly: 0xb8a2ae, head: 0x8b93a3, wing: 0x9aa2b0, tip: 0x3d4048, under: 0xc9cdd6, beak: 0xe8c070, neck: 0xffffff, feet: 0xd77a8a },
-  teal: { realLen: 0.36, realSpan: 0.6, body: [.26, .23, .64], headR: .1, headY: .1, headZ: .38, wingZ: .06, span: .3,
+  teal: { chord: 0.36, primaries: 5, secondaries: 4, realLen: 0.36, realSpan: 0.6, body: [.26, .23, .64], headR: .1, headY: .1, headZ: .38, wingZ: .06, span: .3,
     profile: [[0, -.5], [.22, -.3], [.5, .02], [.46, .3], [0, .5]],
     inner: [[0, .1], [.3, .07], [.3, -.08], [.18, -.11], [0, -.1]],
     outer: [[0, .07], [.36, 0], [.44, -.07], [.33, -.06], [.28, -.1], [.16, -.07], [0, -.08]],
     tail: [[-.06, 0], [-.07, -.18], [0, -.22], [.07, -.18], [.06, 0]],
     back: 0x8d8f8a, belly: 0xdcd2bf, head: 0x8a3b22, wing: 0x7d7f78, tip: 0x2c6e52, under: 0xcfc8b8, beak: 0x333333, patch: 0x2d7a4a, feet: 0x8a8a80 },
-  crow: { realLen: 0.47, realSpan: 0.98, body: [.24, .24, .66], headR: .11, headY: .1, headZ: .4, wingZ: .07, span: .32, headShape: [.9, .9, 1.25], beakLen: 1.6, hook: 0.15,
+  crow: { chord: 0.5, fingered: true, realLen: 0.47, realSpan: 0.98, body: [.24, .24, .66], headR: .11, headY: .1, headZ: .4, wingZ: .07, span: .32, headShape: [.9, .9, 1.25], beakLen: 1.6, hook: 0.15,
     profile: [[0, -.5], [.2, -.3], [.48, .05], [.42, .32], [0, .5]],
     inner: [[0, .12], [.32, .1], [.32, -.14], [.2, -.16], [.1, -.13], [0, -.15]],
     outer: [[0, .1], [.3, .06], [.42, -.02], [.36, -.04], [.45, -.08], [.34, -.09], [.41, -.13], [.28, -.13], [.2, -.16], [0, -.14]],
     tail: [[-.07, 0], [-.11, -.3], [0, -.34], [.11, -.3], [.07, 0]],
     back: 0x1e2026, belly: 0x2a2c33, head: 0x17181c, wing: 0x23262c, tip: 0x111214, under: 0x30333a, beak: 0x2b2b2b, feet: 0x222222 },
-  eagle: { realLen: 0.85, realSpan: 2.05, body: [.3, .28, .95], headR: .14, headY: .1, headZ: .52, wingZ: .12, span: .55, headShape: [.85, .85, 1.3], beakLen: 1.3,
+  eagle: { chord: 0.5, fingered: true, primaries: 7, tailBars: 0x3a2a1c, realLen: 0.85, realSpan: 2.05, body: [.3, .28, .95], headR: .14, headY: .1, headZ: .52, wingZ: .12, span: .55, headShape: [.85, .85, 1.3], beakLen: 1.3,
     profile: [[0, -.5], [.15, -.34], [.42, -.05], [.48, .2], [.36, .38], [0, .5]],
     inner: [[0, .16], [.55, .14], [.55, -.18], [.4, -.22], [.25, -.19], [.1, -.23], [0, -.22]],
     outer: [[0, .14], [.3, .12], [.5, .06], [.42, .02], [.58, -.02], [.44, -.05], [.57, -.1], [.42, -.12], [.5, -.17], [.3, -.18], [0, -.18]],
@@ -782,31 +833,36 @@ const LOOK = {
     beak: 0x3a3a3a, beakTip: 0x1e1e1e, cere: 0xe8b830, feet: 0xe8b830 },
 };
 Object.assign(LOOK, {
-  owl: { realLen: 0.35, realSpan: 0.89, body: [.24, .25, .62], headR: .15, headY: .13, headZ: .32, wingZ: .08, span: .45, headShape: [1.05, 1, 0.85], beakLen: .7, hook: .9,
+  owl: { chord: 0.62, rounded: true, primaries: 7, secondaries: 6, tailBars: 0xb88a4c, realLen: 0.35, realSpan: 0.89, body: [.24, .25, .62], headR: .15, headY: .13, headZ: .32, wingZ: .08, span: .45, headShape: [1.05, 1, 0.85], beakLen: .7, hook: .9,
     profile: [[0, -.5], [.25, -.3], [.5, 0], [.48, .3], [.3, .45], [0, .5]],
     inner: [[0, .18], [.45, .17], [.45, -.24], [.32, -.27], [.2, -.24], [0, -.26]],
     outer: [[0, .17], [.3, .15], [.52, .04], [.5, -.08], [.4, -.18], [.24, -.25], [0, -.24]],
     tail: [[-.07, 0], [-.1, -.22], [.1, -.22], [.07, 0]],
     back: 0xcf9f5a, mantle: 0xb9b0a2, belly: 0xfbf6ec, head: 0xd0a060, face: 0xfdfaf2, wing: 0xd8a862, tip: 0xc2a27a, under: 0xfaf4e6, beak: 0xe6d3b0, feet: 0xd9cfc0 },
-  osprey: { realLen: 0.57, realSpan: 1.6, body: [.26, .24, .95], headR: .13, headY: .08, headZ: .52, wingZ: .12, span: .55, headShape: [.85, .85, 1.25], beakLen: 1.3,
+  osprey: { chord: 0.42, fingered: true, tailBars: 0x5a4636, realLen: 0.57, realSpan: 1.6, body: [.26, .24, .95], headR: .13, headY: .08, headZ: .52, wingZ: .12, span: .55, headShape: [.85, .85, 1.25], beakLen: 1.3,
     profile: [[0, -.5], [.1, -.36], [.3, -.1], [.48, .16], [.42, .34], [.24, .46], [0, .5]],
     inner: [[0, .12], [.55, .08], [.55, -.12], [.4, -.15], [.25, -.12], [.1, -.15], [0, -.15]],
     outer: [[0, .08], [.35, .02], [.6, -.12], [.52, -.14], [.58, -.18], [.45, -.2], [.5, -.24], [.35, -.2], [0, -.13]],
     tail: [[-.06, 0], [-.1, -.36], [.1, -.36], [.06, 0]],
     back: 0x4a3626, belly: 0xf6f3ec, head: 0xf3efe6, wing: 0x4f3a2a, tip: 0x2a1e15, under: 0xe9e4da, beak: 0x2a2a2a, cere: 0x5f6f80, malar: 0x3a2a1e, eyeRing: 0xf2d23a, feet: 0xb9c4c8 },
-  kite: { realLen: 0.63, realSpan: 1.85, body: [.25, .24, .9], headR: .12, headY: .08, headZ: .48, wingZ: .1, span: .52, headShape: [.85, .85, 1.25], beakLen: 1.2,
+  kite: { chord: 0.44, fingered: true, forked: true, realLen: 0.63, realSpan: 1.85, body: [.25, .24, .9], headR: .12, headY: .08, headZ: .48, wingZ: .1, span: .52, headShape: [.85, .85, 1.25], beakLen: 1.2,
     profile: [[0, -.5], [.12, -.34], [.32, -.1], [.48, .16], [.42, .34], [.22, .46], [0, .5]],
     inner: [[0, .13], [.52, .1], [.52, -.14], [.38, -.16], [.24, -.14], [.1, -.17], [0, -.17]],
     outer: [[0, .1], [.3, .06], [.5, -.02], [.44, -.05], [.55, -.09], [.43, -.11], [.52, -.16], [.38, -.17], [0, -.15]],
     tail: [[-.05, 0], [-.15, -.52], [-.07, -.42], [0, -.38], [.07, -.42], [.15, -.52], [.05, 0]],
     back: 0x9a4a24, belly: 0xb5602c, bars: 0x8a3e1c, head: 0xd8d4cc, wing: 0xa65a2c, tip: 0x1f1a17, under: 0xece6dc, tailTop: 0xc4702e, beak: 0x3a3330, cere: 0xe8c040, eyeRing: 0xe8d070, feet: 0xe8c040 },
-  hawk: { realLen: 0.33, realSpan: 0.68, body: [.24, .23, .8], headR: .12, headY: .07, headZ: .42, wingZ: .1, span: .33, headShape: [.85, .85, 1.2], beakLen: 1.0,
+  hawk: { chord: 0.55, rounded: true, tailBars: 0x3f4a56, realLen: 0.33, realSpan: 0.68, body: [.24, .23, .8], headR: .12, headY: .07, headZ: .42, wingZ: .1, span: .33, headShape: [.85, .85, 1.2], beakLen: 1.0,
     profile: [[0, -.5], [.15, -.32], [.38, -.06], [.48, .18], [.4, .36], [.2, .46], [0, .5]],
     inner: [[0, .14], [.33, .12], [.33, -.15], [.22, -.18], [.1, -.16], [0, -.18]],
     outer: [[0, .12], [.22, .1], [.36, .03], [.4, -.05], [.35, -.12], [.22, -.17], [0, -.16]],
     tail: [[-.07, 0], [-.09, -.55], [0, -.57], [.09, -.55], [.07, 0]],
     back: 0x5d6a7a, belly: 0xf3e7d6, bars: 0xd9874a, head: 0x56636f, cheek: 0xe8a060, wing: 0x5f6c7c, tip: 0x3f4a56, under: 0xe8dccb, tailTop: 0x6a7686, beak: 0x2f2f33, cere: 0xe8c84a, eyeRing: 0xf2a020, feet: 0xf0c83a },
-  finch: { realLen: 0.145, realSpan: 0.26, body: [.2, .2, .42], headR: .09, headY: .08, headZ: .24, wingZ: .04, span: .18, beakLen: .8, hook: .2,
+  grouse: { chord: 0.45, rounded: true, primaries: 5, secondaries: 4, realLen: 0.38, realSpan: 0.62, body: [.32, .3, .62], headR: .1, headY: .1, headZ: .36, wingZ: .06, span: .28, beakLen: .7, hook: .5,
+    profile: [[0, -.5], [.22, -.3], [.5, .02], [.46, .3], [0, .5]],
+    inner: [[0, .12], [.28, .11], [.28, -.13], [.16, -.15], [0, -.14]], outer: [[0, .1], [.22, .06], [.3, -.02], [.26, -.1], [.14, -.14], [0, -.13]],
+    tail: [[-.07, 0], [-.09, -.18], [.09, -.18], [.07, 0]],
+    back: 0x6a3820, belly: 0x5a2c18, bars: 0x3a2014, head: 0x7a4024, wing: 0x7a4a2c, tip: 0x5a3a24, under: 0x9a7a5a, beak: 0x2a2a2a, eyeRing: 0xd8342a, feet: 0xe8e0d0 },
+  finch: { chord: 0.45, primaries: 5, secondaries: 3, tailFeathers: 5, realLen: 0.145, realSpan: 0.26, body: [.2, .2, .42], headR: .09, headY: .08, headZ: .24, wingZ: .04, span: .18, beakLen: .8, hook: .2,
     profile: [[0, -.5], [.2, -.3], [.5, .05], [.44, .32], [0, .5]],
     inner: [[0, .08], [.18, .07], [.18, -.08], [0, -.09]], outer: [[0, .07], [.2, .03], [.24, -.04], [.12, -.08], [0, -.08]],
     tail: [[-.04, 0], [-.05, -.22], [.05, -.22], [.04, 0]],
@@ -815,18 +871,18 @@ Object.assign(LOOK, {
 
 // Each playable bird flies differently, has its own special skill and its own favourite food.
 const SPECIES = {
-  peregrine: { look: 'falcon', name: 'Peregrine Falcon', plural: 'Peregrines', drag: .0016, tuckDrag: .00098, arrowDrag: .00078, thrust: 1.88, lift: 2.6, turn: 1.95, energy: 100, flapCost: 5, maxSpeed: 115, thermal: 1, ability: null, start: 7,
-    diet: { pigeon: 1, teal: 1, crow: 1, finch: .8, shrew: 1, eel: 1, fish: .3, hare: .1, carrion: .6 } },
-  eagle: { look: 'eagle', name: 'Golden Eagle', plural: 'Golden eagles', drag: .0013, tuckDrag: .0016, arrowDrag: .0013, thrust: 1.75, lift: 2.8, turn: 1.4, energy: 140, flapCost: 6, maxSpeed: 90, thermal: 1.3, ability: 'sight', start: 7,
-    diet: { hare: 1.2, crow: .9, teal: .8, pigeon: .7, shrew: .9, fish: .6, eel: .7, carrion: 1, finch: .3 } },
-  owl: { look: 'owl', name: 'Barn Owl', plural: 'Barn owls', drag: .0024, tuckDrag: .0035, arrowDrag: .003, thrust: 1.75, lift: 3, turn: 2.4, energy: 90, flapCost: 4, maxSpeed: 60, thermal: .8, ability: 'listen', nocturnal: true, silent: true, start: 19.5,
-    diet: { shrew: 1.25, finch: .6, pigeon: .4, teal: .2, crow: .2, eel: .3, fish: .2, hare: .1, carrion: .5 } },
-  osprey: { look: 'osprey', name: 'Osprey', plural: 'Ospreys', drag: .0017, tuckDrag: .0014, arrowDrag: .0012, thrust: 1.88, lift: 2.8, turn: 1.7, energy: 110, flapCost: 5, maxSpeed: 90, thermal: 1, ability: 'hover', start: 7,
-    diet: { fish: 1.3, eel: 1.2, pigeon: .15, teal: .15, crow: .1, finch: .1, shrew: .15, hare: .05, carrion: .1 } },
-  kite: { look: 'kite', name: 'Red Kite', plural: 'Red kites', drag: .0011, tuckDrag: .0025, arrowDrag: .002, thrust: 1.5, lift: 2.4, turn: 2.6, energy: 120, flapCost: 4.5, maxSpeed: 80, thermal: 1.2, ability: 'scan', start: 7,
-    diet: { carrion: 1.25, shrew: .9, finch: .4, pigeon: .3, eel: .5, fish: .4, crow: .2, teal: .2, hare: .1 } },
-  hawk: { look: 'hawk', name: 'Sparrowhawk', plural: 'Sparrowhawks', drag: .002, tuckDrag: .0018, arrowDrag: .0015, thrust: 2.75, lift: 3, turn: 2.9, energy: 80, flapCost: 6, maxSpeed: 90, thermal: .9, ability: 'burst', treeSafe: true, start: 7,
-    diet: { finch: 1.3, pigeon: .8, shrew: .6, crow: .3, teal: .3, eel: .3, fish: .1, hare: .05, carrion: .3 } },
+  peregrine: { lookLimit: 1.6, look: 'falcon', name: 'Peregrine Falcon', plural: 'Peregrines', drag: .0016, tuckDrag: .00098, arrowDrag: .00078, thrust: 1.88, lift: 2.6, turn: 1.95, energy: 100, flapCost: 5, maxSpeed: 115, thermal: 1, ability: null, start: 7,
+    diet: { grouse: 1, pigeon: 1, teal: 1, crow: 1, finch: .8, shrew: 1, eel: 1, fish: .3, hare: .1, carrion: .6 } },
+  eagle: { lookLimit: 1.6, look: 'eagle', name: 'Golden Eagle', plural: 'Golden eagles', drag: .0013, tuckDrag: .0016, arrowDrag: .0013, thrust: 1.75, lift: 2.8, turn: 1.4, energy: 140, flapCost: 6, maxSpeed: 90, thermal: 1.3, ability: 'sight', start: 7,
+    diet: { grouse: 1.15, hare: 1.2, crow: .9, teal: .8, pigeon: .7, shrew: .9, fish: .6, eel: .7, carrion: 1, finch: .3 } },
+  owl: { lookLimit: 2.35, look: 'owl', name: 'Barn Owl', plural: 'Barn owls', drag: .0024, tuckDrag: .0035, arrowDrag: .003, thrust: 1.75, lift: 3, turn: 2.4, energy: 90, flapCost: 4, maxSpeed: 60, thermal: .8, ability: 'listen', nocturnal: true, silent: true, start: 19.5,
+    diet: { grouse: .2, shrew: 1.25, finch: .6, pigeon: .4, teal: .2, crow: .2, eel: .3, fish: .2, hare: .1, carrion: .5 } },
+  osprey: { lookLimit: 1.6, look: 'osprey', name: 'Osprey', plural: 'Ospreys', drag: .0017, tuckDrag: .0014, arrowDrag: .0012, thrust: 1.88, lift: 2.8, turn: 1.7, energy: 110, flapCost: 5, maxSpeed: 90, thermal: 1, ability: 'hover', start: 7,
+    diet: { grouse: .1, fish: 1.3, eel: 1.2, pigeon: .15, teal: .15, crow: .1, finch: .1, shrew: .15, hare: .05, carrion: .1 } },
+  kite: { lookLimit: 1.6, look: 'kite', name: 'Red Kite', plural: 'Red kites', drag: .0011, tuckDrag: .0025, arrowDrag: .002, thrust: 1.5, lift: 2.4, turn: 2.6, energy: 120, flapCost: 4.5, maxSpeed: 80, thermal: 1.2, ability: 'scan', start: 7,
+    diet: { grouse: .25, carrion: 1.25, shrew: .9, finch: .4, pigeon: .3, eel: .5, fish: .4, crow: .2, teal: .2, hare: .1 } },
+  hawk: { lookLimit: 1.7, look: 'hawk', name: 'Sparrowhawk', plural: 'Sparrowhawks', drag: .002, tuckDrag: .0018, arrowDrag: .0015, thrust: 2.75, lift: 3, turn: 2.9, energy: 80, flapCost: 6, maxSpeed: 90, thermal: .9, ability: 'burst', treeSafe: true, start: 7,
+    diet: { grouse: .6, finch: 1.3, pigeon: .8, shrew: .6, crow: .3, teal: .3, eel: .3, fish: .1, hare: .05, carrion: .3 } },
 };
 const ABILITY = {
   sight: { label: 'SIGHT', name: 'Keen sight', hold: false },
@@ -839,7 +895,8 @@ let spId = 'peregrine', SP = SPECIES.peregrine;
 
 const PREY = {
   pigeon: { name: 'Wood pigeon', xp: 40, speed: 15, flee: 23, alert: 45, feathers: [0x9aa2b0, 0xb8a2ae, 0xe9e9ee], food: 45 },
-  teal: { name: 'Teal', xp: 90, speed: 20, flee: 30, alert: 60, feathers: [0x8d8f8a, 0xdcd2bf, 0x2c6e52], food: 55 },
+  teal: { name: 'Teal', xp: 90, speed: 20, flee: 30, alert: 60, feathers: [0x8d8f8a, 0xdcd2bf, 0x2c6e52], food: 55, restOn: 'water' },
+  grouse: { name: 'Red grouse', xp: 55, speed: 17, flee: 21, alert: 35, feathers: [0x7a3f24, 0x9a5a34, 0x3a2418], food: 50, restOn: 'ground' },
   crow: { name: 'Carrion crow', xp: 60, speed: 13, flee: 21, alert: 40, feathers: [0x1e2026, 0x30333a, 0x111214], food: 55 },
   shrew: { name: 'Shrew', xp: 12, food: 22, feathers: [0x5e4632, 0xb8a58a], critter: true, range: 160 },
   eel: { name: 'Eel', xp: 30, food: 35, feathers: [0x4b5a2c, 0xcfe8f5, 0xffffff], critter: true, range: 260 },
@@ -1000,6 +1057,8 @@ function updateTime(dt) {
   windowMat.color.copy(SKY.winOff).lerp(SKY.winOn, nightF);
   cloudMat.color.copy(SKY.cloudDay).lerp(SKY.cloudNight, nightF); cloudMat.emissiveIntensity = 0.35 * (1 - nightF);
 }
+const spdUnit = () => settings.mph ? 'mph' : 'km/h';
+const spd = kmh => Math.round(settings.mph ? kmh * 0.621 : kmh) + ' ' + spdUnit();
 const fmtTime = h => String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.floor((h % 1) * 60)).padStart(2, '0');
 const partOfDay = h => h < 5 ? 'Night' : h < 7 ? 'Dawn' : h < 12 ? 'Morning' : h < 17 ? 'Afternoon' : h < 20 ? 'Evening' : 'Night';
 
@@ -1009,7 +1068,7 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
 };
-const settings = { invert: false, muted: false, autoLevel: false, horizon: true, ...(store.get(SETTINGS_KEY) || {}) };
+const settings = { invert: false, muted: false, autoLevel: false, horizon: true, mph: true, ...(store.get(SETTINGS_KEY) || {}) };
 const saveSettings = () => store.set(SETTINGS_KEY, settings);
 const blankStats = () => ({ pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, finch: 0, hare: 0, fish: 0, carrion: 0, scans: 0, bursts: 0, listenTime: 0, hoverTime: 0, woodsTime: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
 let prog = { xp: 0, mission: 0, stats: blankStats(), done: false };
@@ -1044,6 +1103,7 @@ const FACTS = {
   shrew: 'Shrews have smelly glands that put off foxes and cats, but birds of prey have a poor sense of smell, so owls and hawks eat them happily.',
   eel: 'In real life peregrines very rarely catch fish. Snatching eels and fish from the water is really the osprey\'s job: ospreys have spiky pads on their feet to grip slippery prey.',
   teal: 'Teal are Britain\'s smallest ducks. When danger comes they spring straight up off the water, which is why a group of teal is called a "spring".',
+  grouse: 'Red grouse live on heather moors. They crouch hidden until danger is close, then burst up with a whirr of wings, calling "go-back, go-back".',
   hare: 'Mountain hares can run at over 60 km/h and zigzag sharply to escape. Their fur turns white in winter.',
   fish: 'Brown trout live in clear rivers and streams. They rise to the surface to snap up insects, which is when a hunter can grab them.',
   carrion: 'Eating animals that are already dead is called scavenging. It\'s an easy meal, and it helps keep the countryside clean.',
@@ -1075,19 +1135,19 @@ const FACTS = {
 };
 const PEREGRINE_MISSIONS = [
   { title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact: 'thermal' },
-  { title: 'Touch down', text: () => `Hold ${KEY.brake} to brake below 60 km/h, then land gently on the ground, a tree top or your nest.`, done: s => s.landings >= 1, fact: 'landing' },
-  { title: 'The stoop', text: () => `Climb high, then hold ${KEY.dive} to fold your wings and dive faster than 180 km/h.`, done: s => s.topSpeed >= 180, fact: 'stoop' },
+  { title: 'Touch down', text: () => `Hold ${KEY.brake} to brake below ${spd(60)}, then land gently on the ground, a tree top or your nest.`, done: s => s.landings >= 1, fact: 'landing' },
+  { title: 'The stoop', text: () => `Climb high, then hold ${KEY.dive} to fold your wings and dive faster than ${spd(180)}.`, done: s => s.topSpeed >= 180, fact: 'stoop' },
   { title: 'First catch', text: () => 'Catch a wood pigeon. Strike fast, from above or behind, or it may dodge you.', done: s => s.pigeon >= 1, fact: 'pigeon' },
   { title: 'Hungry mouths', text: () => 'Carry your catch to your eyrie on the western cliffs (gold beam).', done: s => s.fed >= 1, fact: 'chicks' },
   { title: 'Thirsty work', text: () => `Land on the river bank, walk to the water's edge and press ${KEY.act} to drink.`, done: s => s.drinks >= 1, fact: 'drink' },
   { title: 'River hunter', text: () => 'Teal rest on the river. Fly close to make them spring up, then catch one in the air.', done: s => s.teal >= 1, fact: 'talons' },
   { title: 'Safe roost', text: () => `Land in a tree or your nest and press ${KEY.sleep} to sleep.`, done: s => s.sleeps >= 1, fact: 'sleep' },
-  { title: 'Living arrow', text: () => 'Make a Stoop Strike: catch prey while diving faster than 200 km/h.', done: s => s.stoops >= 1, fact: 'ddt' },
+  { title: 'Living arrow', text: () => `Make a Stoop Strike: catch prey while diving faster than ${spd(200)}.`, done: s => s.stoops >= 1, fact: 'ddt' },
   { title: 'Lord of the Valley', text: () => 'Feed your chicks 5 times in total.', done: s => s.fed >= 5, fact: 'tiercel' },
 ];
 const Q = {
   thermal: fact => ({ title: 'Ride the warm air', text: () => 'Find a thermal (swirling golden dust) and circle inside it for 6 seconds to climb.', done: s => s.thermalTime >= 6, fact }),
-  land: fact => ({ title: 'Touch down', text: () => `Hold ${KEY.brake} to brake below 60 km/h, then land gently.`, done: s => s.landings >= 1, fact }),
+  land: fact => ({ title: 'Touch down', text: () => `Hold ${KEY.brake} to brake below ${spd(60)}, then land gently.`, done: s => s.landings >= 1, fact }),
   feed: fact => ({ title: 'Hungry mouths', text: () => 'Carry your catch home to your nest (gold beam) to feed your chicks.', done: s => s.fed >= 1, fact }),
   drink: fact => ({ title: 'Thirsty work', text: () => `Land on the river bank, walk to the water's edge and press ${KEY.act} to drink.`, done: s => s.drinks >= 1, fact }),
   roost: fact => ({ title: 'Safe roost', text: () => `Land in a tree or your nest and press ${KEY.sleep} to sleep.`, done: s => s.sleeps >= 1, fact }),
@@ -1132,7 +1192,7 @@ const MISSION_SETS = {
     Q.land('landing'),
     { title: 'Burst of speed', text: () => `Press ${KEY.skill} for a sudden burst of speed.`, done: s => s.bursts >= 1, fact: 'hAmbush' },
     { title: 'Ambush', text: () => 'Catch a chaffinch. Burst out from the trees to surprise one.', done: s => s.finch >= 1, fact: 'hGarden' },
-    { title: 'Through the trees', text: () => 'Fly through the woods faster than 50 km/h for 5 seconds. Sparrowhawks can weave between the branches.', done: s => s.woodsTime >= 5, fact: 'hWoods' },
+    { title: 'Through the trees', text: () => `Fly low through the woods faster than ${spd(50)} for 5 seconds, weaving between the trees.`, done: s => s.woodsTime >= 5, fact: 'hWoods' },
     Q.feed('chicks'),
     { title: 'Pigeon hunter', text: () => 'Catch a wood pigeon, a big meal for a sparrowhawk.', done: s => s.pigeon >= 1, fact: 'hSize' },
     Q.master('Master of the Woods', 'sleep'),
@@ -1193,20 +1253,28 @@ function pickTarget(f) {
   }
 }
 function addFlock(type, home, radius, altMin, altMax, n) {
-  const f = { type, home, radius, altMin, altMax, target: new V3(), timer: 0, members: [], swim: type === 'teal', landing: false };
+  const restOn = PREY[type].restOn || null;
+  const f = { type, home, radius, altMin, altMax, target: new V3(), timer: 0, members: [], swim: !!restOn, restOn, landing: false };
   if (f.swim) pickSwimSpot(f); else pickTarget(f);
   for (let i = 0; i < n; i++) {
     const b = makeBird(LOOK[type]);
     const p = { type, b, flock: f, pos: f.target.clone().add(new V3((rand() - .5) * 30, 0, (rand() - .5) * 30)), vel: new V3(rand() - .5, 0, rand() - .5).setLength(PREY[type].speed),
       offset: new V3((rand() - .5) * 16, (rand() - .5) * 6, (rand() - .5) * 16), phase: rand() * 6, state: 'fly', fleeT: 0, dodgeT: 0, respawn: 0, jink: 0, bank: 0, lastYaw: 0, glideT: 0 };
-    if (f.swim) { p.state = 'swim'; p.offset.set((rand() - .5) * 8, 0, (rand() - .5) * 24); p.pos.copy(f.target).add(p.offset); p.swimYaw = rand() * 6.28; }
+    if (f.swim) { p.state = 'swim'; p.offset.set((rand() - .5) * (restOn === 'ground' ? 14 : 8), 0, (rand() - .5) * (restOn === 'ground' ? 14 : 24)); p.pos.copy(f.target).add(p.offset); p.swimYaw = rand() * 6.28; }
     scene.add(b.group); f.members.push(p); prey.push(p);
   }
   flocks.push(f);
 }
-// a resting spot on the open water, away from the banks
+// a resting spot: open water for ducks, open moorland for grouse
 function pickSwimSpot(f) {
   f.timer = 0;
+  if (f.restOn === 'ground') {
+    for (let k = 0; k < 40; k++) {
+      const x = f.home.x + (rand() - .5) * 2 * f.radius, z = f.home.z + (rand() - .5) * 2 * f.radius, h = heightAt(x, z);
+      if (h > (f.minH ?? 2) && h < (f.maxH ?? THIN_AIR - 40) && slopeAt(x, z) > 0.8 && !treesNear(x, z).some(t => Math.hypot(t.x - x, t.z - z) < t.r + 2)) { f.target.set(x, groundAt(x, z), z); return; }
+    }
+    f.target.set(f.home.x, groundAt(f.home.x, f.home.z), f.home.z); return;
+  }
   for (let k = 0; k < 20; k++) {
     const z = clamp(f.home.z + (rand() - .5) * 2 * f.radius, -950, 950), x = riverX(z) + (rand() - .5) * 16;
     if (heightAt(x, z) < -2) { f.target.set(x, 0.08, z); return; }
@@ -1226,7 +1294,7 @@ function updatePrey(dt, playing) {
   const roosting = nightF > 0.6;
   for (const f of flocks) {
     f.timer += dt;
-    if (f.type === 'teal') { updateTealFlock(f, playing); continue; }
+    if (f.restOn) { updateTealFlock(f, playing); continue; }
     const live = f.members.filter(p => p.state === 'fly');
     if (live.length) {
       tA.set(0, 0, 0); live.forEach(p => tA.add(p.pos)); tA.multiplyScalar(1 / live.length);
@@ -1239,7 +1307,7 @@ function updatePrey(dt, playing) {
     if (PREY[p.type].critter) { updateCritter(p, dt, playing); continue; }
     if (p.state === 'swim') { updateSwimmer(p, dt); continue; }
     // pigeons and crows roost at night; ducks stay active
-    if (p.type !== 'teal' && roosting && p.state === 'fly' && p.pos.distanceTo(F.pos) > 120) { p.state = 'roost'; p.b.group.visible = false; continue; }
+    if (!p.flock.restOn && roosting && p.state === 'fly' && p.pos.distanceTo(F.pos) > 120) { p.state = 'roost'; p.b.group.visible = false; continue; }
     if (p.state === 'roost') { if (!roosting) respawnPrey(p); continue; }
     const T = PREY[p.type];
     p.dodgeT = Math.max(0, p.dodgeT - dt);
@@ -1256,7 +1324,7 @@ function updatePrey(dt, playing) {
     }
     p.vel.lerp(tA, 1 - Math.exp(-dt * (p.fleeT > 0 ? 3 : 1.3)));
     const g = groundAt(p.pos.x, p.pos.z);
-    const landingOnWater = p.type === 'teal' && p.flock.landing;
+    const landingOnWater = !!p.flock.restOn && p.flock.landing;
     if (!landingOnWater && p.pos.y < g + 4) p.vel.y = Math.max(p.vel.y, (g + 4 - p.pos.y) * 3);
     if (landingOnWater && p.pos.distanceTo(tC.copy(p.flock.target).add(p.offset)) < 8) { p.state = 'swim'; p.swimYaw = Math.atan2(p.vel.x, p.vel.z); continue; }
     if (p.pos.y > 420) p.vel.y = Math.min(p.vel.y, 0);
@@ -1275,11 +1343,11 @@ function updatePrey(dt, playing) {
 function updateTealFlock(f, playing) {
   const members = f.members.filter(p => p.state === 'swim' || p.state === 'fly');
   if (f.swim) {
-    const near = playing && F.mode === 'fly' && members.some(p => p.pos.distanceTo(F.pos) < 75);
+    const near = playing && F.mode === 'fly' && members.some(p => p.pos.distanceTo(F.pos) < (f.restOn === 'ground' ? 45 : 75) * (SP.silent ? 0.5 : 1));
     if (near || (f.timer > 70 && nightF < 0.5)) {
       f.swim = false; f.landing = false; f.timer = 0; pickTarget(f);
       for (const p of members) { p.state = 'fly'; p.vel.set(rand() - .5, 0, rand() - .5).setLength(8); p.vel.y = 9; p.fleeT = near ? 2.5 : 0; }
-      if (near) { whoosh(0.25, 1200); showFactOnce('teal'); }
+      if (near) { whoosh(0.25, 1200); showFactOnce(f.type); }
     }
   } else if (!f.landing) {
     const live = members.filter(p => p.state === 'fly');
@@ -1293,7 +1361,7 @@ function updateTealFlock(f, playing) {
 function updateSwimmer(p, dt) {
   tA.copy(p.flock.target).add(p.offset); tA.y = 0;
   p.pos.x = damp(p.pos.x, tA.x, 0.4, dt); p.pos.z = damp(p.pos.z, tA.z, 0.4, dt);
-  p.pos.y = 0.05 + Math.sin(game.t * 2 + p.phase) * 0.03;
+  p.pos.y = p.flock.restOn === 'ground' ? groundAt(p.pos.x, p.pos.z) + p.b.leg * 0.6 : 0.05 + Math.sin(game.t * 2 + p.phase) * 0.03;
   p.swimYaw += Math.sin(game.t * 0.3 + p.phase) * dt * 0.4;
   p.b.group.position.copy(p.pos); p.b.group.rotation.set(0, p.swimYaw, 0);
   p.b.head.rotation.x = Math.sin(game.t * 0.8 + p.phase) > 0.85 ? 0.9 : 0;
@@ -1308,6 +1376,10 @@ function animatePrey(p, dt) {
     if (!fleeing && p.glideT > 0) { animWings(p.b, { dihedral: 0.35 }); return; }
     p.phase += dt * (fleeing ? 16 : 10);
     animWings(p.b, { ph: p.phase, amp: fleeing ? 1.0 : 0.85 });
+  } else if (p.type === 'grouse') {
+    // grouse whirr fast on stubby wings, then glide on bowed wings low over the heather
+    const cycle = (game.t * 0.8 + p.phase) % 1;
+    if (cycle < 0.5 || fleeing) { p.phase += dt * 24; animWings(p.b, { ph: p.phase, amp: 0.65 }); } else animWings(p.b, { dihedral: -0.15 });
   } else if (p.type === 'finch') {
     // small birds bound along: a burst of flaps, then a dip with wings shut
     const cycle = (game.t * 2.2 + p.phase) % 1;
@@ -1325,7 +1397,7 @@ function animatePrey(p, dt) {
 function respawnPrey(p) {
   if (PREY[p.type].critter) { hideCritter(p, 15 + rand() * 15, true); if (p.b.group.parent !== scene) scene.add(p.b.group); p.b.group.scale.setScalar(p.b.scale); return; }
   const f = p.flock;
-  if (f.swim && p.type === 'teal') {
+  if (f.swim && f.restOn) {
     if (p.b.group.parent !== scene) scene.add(p.b.group);
     p.b.group.scale.setScalar(p.b.scale); p.b.group.visible = true; p.b.legs.visible = false;
     p.pos.copy(f.target).add(p.offset); p.state = 'swim'; p.fleeT = 0; p.dodgeT = 0; return;
@@ -1439,11 +1511,11 @@ const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 
   }
   // mountain hares on the high moors, some near the eagle's crag
   made = 0;
-  for (let k = 0; k < 2000 && made < 20; k++) {
-    const nx = NESTS.eagle, near = k < 300;
+  for (let k = 0; k < 3000 && made < 32; k++) {
+    const nx = NESTS.eagle, near = k < 500;
     const x = near ? nx.x + (rand() - .5) * 300 : (rand() - .5) * 1900, z = near ? nx.z + (rand() - .5) * 300 : (rand() - .5) * 1900, h = heightAt(x, z);
     if (h < 100 || h > THIN_AIR - 30 || slopeAt(x, z) < 0.8 || Math.hypot(x, z) > 1000) continue;
-    if (near && made >= 6) continue;
+    if (near && made >= 10) continue;
     const b = makeHare(); scene.add(b.group);
     prey.push({ type: 'hare', b, pos: new V3(x, h, z), home: new V3(x, 0, z), state: 'active', ...critterBase() });
     made++;
@@ -1507,7 +1579,7 @@ function updateCritter(p, dt, playing) {
 function updateHare(p, dt, playing) {
   if (p.state === 'hidden') { if (p.t > p.hideFor) { p.state = 'active'; p.t = 0; p.b.group.visible = true; } return; }
   const d = Math.hypot(F.pos.x - p.pos.x, F.pos.z - p.pos.z), above = F.pos.y - p.pos.y;
-  if (playing && d < 45 && above < 50 && p.fleeT <= 0 && p.moveT > -6) { p.fleeT = 4; p.yaw = Math.atan2(p.pos.x - F.pos.x, p.pos.z - F.pos.z); p.moveT = -6; }
+  if (playing && d < 28 && above < 30 && p.fleeT <= 0 && p.moveT > -6) { p.fleeT = 4; p.yaw = Math.atan2(p.pos.x - F.pos.x, p.pos.z - F.pos.z); p.moveT = -6; }
   let speed = 0;
   if (p.fleeT > 0) { p.fleeT -= dt; speed = 9; if (Math.sin(p.t * 3) > 0.95) p.yaw += (rand() < .5 ? 1 : -1) * 1.2; }
   else {
@@ -1589,6 +1661,12 @@ function updateEagle(dt) {
   // eagles soar on flat, fingered wings and only flap hard in a chase
   if (E.state === 'hunt') { E.ph += dt * 7; animWings(E.b, { ph: E.ph, amp: 0.55 }); }
   else { E.ph += dt * 5; const flapping = Math.sin(E.t * 0.15) > 0.85; animWings(E.b, flapping ? { ph: E.ph, amp: 0.4 } : { dihedral: 0.12 + Math.sin(E.t * 0.8) * 0.03 }); }
+}
+// red grouse live in groups on the heather moors
+{
+  const moorFlock = (x, z) => { addFlock('grouse', new V3(x, 0, z), 160, 3, 10, 5); Object.assign(flocks[flocks.length - 1], { minH: 105, maxH: THIN_AIR - 50 }); pickSwimSpot(flocks[flocks.length - 1]); flocks[flocks.length - 1].members.forEach(p => { p.pos.copy(flocks[flocks.length - 1].target).add(p.offset); }); };
+  const en = NESTS.eagle;
+  moorFlock(en.x + 120, en.z + 80); moorFlock(en.x - 60, en.z - 200); moorFlock(EX - 120, EZ + 260); moorFlock(EX - 200, EZ - 300); moorFlock(riverX(600) - 420, 600);
 }
 // crows live in the woods; you can hunt them
 {
@@ -1694,6 +1772,44 @@ function burst(pos, vel, colors, n = 36, specks = 1) {
     p.m.scale.setScalar(1);
   }
 }
+// While an owl listens, every animal it can hear shows up as a glowing pulse, coloured by what it is:
+// orange for small mammals, yellow for birds, cyan for fish, red for danger. They show through grass and leaves.
+const SOUND_COL = { shrew: 0xff9a3c, hare: 0xff9a3c, lemming: 0xff9a3c, monkey: 0xff9a3c, sloth: 0xff9a3c, carrion: 0xb07a50, fish: 0x5fe8ff, eel: 0x5fe8ff, danger: 0xff3b3b };
+const sounds = [];
+{
+  const ring = new THREE.RingGeometry(0.75, 1, 24), dot = new THREE.CircleGeometry(0.45, 16);
+  for (let i = 0; i < 48; i++) {
+    const g = new THREE.Group();
+    const mr = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    const md = mr.clone(); md.opacity = 0.9;
+    const r = new THREE.Mesh(ring, mr), d = new THREE.Mesh(dot, md); g.add(r, d); g.renderOrder = 10; g.visible = false; scene.add(g);
+    sounds.push({ g, r, d });
+  }
+}
+function updateSoundVision(dt) {
+  const on = game.state === 'play' && F.listening;
+  $('listenFx').hidden = !on;
+  let n = 0;
+  if (on) {
+    const add = (pos, color, size, phase) => {
+      if (n >= sounds.length) return;
+      const sv = sounds[n++], d = camera.position.distanceTo(pos), k = (0.25 + d * 0.018) * size;
+      sv.g.visible = true; sv.g.position.copy(pos); sv.g.quaternion.copy(camera.quaternion);
+      const pulse = (game.t * 1.6 + phase) % 1;
+      sv.r.scale.setScalar(k * (0.6 + pulse * 1.4)); sv.r.material.opacity = 0.85 * (1 - pulse); sv.r.material.color.setHex(color);
+      sv.d.scale.setScalar(k * (0.55 + Math.sin(game.t * 8 + phase * 6) * 0.12)); sv.d.material.color.setHex(color);
+    };
+    for (const p of prey) {
+      if (p.state === 'dead' || p.state === 'carried' || p.state === 'roost') continue;
+      if (p.type === 'eel' || p.type === 'fish') { if (p.state !== 'active') continue; }
+      const d = p.pos.distanceTo(F.pos); if (d > 150) continue;
+      add(tC.copy(p.pos).setY(p.pos.y + 0.15), SOUND_COL[p.type] || 0xffe066, PREY[p.type].critter ? 1 : 0.8, (p.phase || p.t || 0) % 1);
+    }
+    for (const f of foxes) if (f.pos.distanceTo(F.pos) < 150) add(tC.copy(f.pos).setY(f.pos.y + 0.5), SOUND_COL.danger, 1.6, 0.3);
+    if (eagle.b.group.visible && eagle.pos.distanceTo(F.pos) < 300) add(eagle.pos, SOUND_COL.danger, 2, 0.6);
+  }
+  for (let i = n; i < sounds.length; i++) sounds[i].g.visible = false;
+}
 function updateParts(dt) {
   for (const p of parts) {
     if (p.life <= 0) continue;
@@ -1781,6 +1897,9 @@ function updateAudio() {
 
 // ---------- input ----------
 // inp.y: +1 means nose up (climb) in the air and walk forward on the ground
+// Looking around turns your bird's head, up to how far that bird can really turn it (owls much further).
+const LOOKER = { yaw: 0, pitch: 0, tYaw: 0, tPitch: 0, drag: null, padHeld: false };
+const headLimit = () => SP.lookLimit ?? 1.6;
 const keys = {};
 const touch = { x: 0, y: 0, flap: false, dive: false, skill: false, brake: false, id: null, ox: 0, oy: 0 };
 let flapHeld = false, skillHeld = false;
@@ -1798,6 +1917,21 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 let padPrev = {};
+{
+  const startDrag = (e, el) => { LOOKER.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, yaw: LOOKER.tYaw, pitch: LOOKER.tPitch }; el.setPointerCapture?.(e.pointerId); };
+  const moveDrag = e => {
+    const d = LOOKER.drag; if (!d || d.id !== e.pointerId) return;
+    LOOKER.tYaw = clamp(d.yaw - (e.clientX - d.x) * 0.006, -headLimit(), headLimit());
+    LOOKER.tPitch = clamp(d.pitch - (e.clientY - d.y) * 0.004, -0.6, 0.5);
+  };
+  const endDrag = e => { if (LOOKER.drag && LOOKER.drag.id === e.pointerId) { LOOKER.drag = null; LOOKER.tYaw = 0; LOOKER.tPitch = 0; } };
+  for (const el of [$('game'), $('lookZone')]) {
+    el.addEventListener('pointerdown', e => { if (game.state === 'play' && !game.paused) startDrag(e, el); });
+    el.addEventListener('pointermove', moveDrag);
+    for (const ev of ['pointerup', 'pointercancel']) el.addEventListener(ev, endDrag);
+  }
+  $('game').addEventListener('contextmenu', e => e.preventDefault());
+}
 function readInput() {
   let x = 0, y = 0, flap = false, tuck = false, skill = !!keys.KeyQ || touch.skill, brake = !!keys.KeyB || touch.brake;
   if (keys.KeyA || keys.ArrowLeft) x -= 1;
@@ -1814,6 +1948,11 @@ function readInput() {
     x += dz(gp.axes[0] || 0); y -= dz(gp.axes[1] || 0);
     const b = i => gp.buttons[i]?.pressed;
     flap ||= b(0); tuck ||= b(1) || b(7); brake ||= b(6); skill ||= b(5) || b(4);
+    // right stick or d-pad to look around
+    const rx = dz(gp.axes[2] || 0), ry = dz(gp.axes[3] || 0);
+    if (rx || ry) { LOOKER.tYaw = -rx * headLimit(); LOOKER.tPitch = -ry * 0.5; LOOKER.padHeld = true; }
+    else if (b(14) || b(15)) { LOOKER.tYaw = clamp(LOOKER.tYaw + (b(14) ? 1 : -1) * 2.5 / 60, -headLimit(), headLimit()); LOOKER.padHeld = true; }
+    else if (LOOKER.padHeld) { LOOKER.tYaw = 0; LOOKER.tPitch = 0; LOOKER.padHeld = false; }
     if (b(3) && !padPrev[3]) toggleCam();
     if (b(2) && !padPrev[2]) doAction();
     if (b(9) && !padPrev[9]) togglePause();
@@ -1878,6 +2017,14 @@ const TIPS = {
   flapping: 'Real birds of prey glide most of the time and only flap in short bursts. Gliding saves energy for the hunt.',
   climb: 'To climb high without using energy, find a thermal (swirling golden dust) and circle inside it.',
 };
+const HUNT_TIPS = {
+  peregrine: 'Peregrines hunt from high up. Climb above your prey, then hold Shift to stoop down onto it from above or behind.',
+  eagle: 'Golden eagles hunt low and sneaky: glide just above the hillside, then drop onto hares and grouse before they can run. Come in at a medium speed, and use Keen sight (Q) to spot them. Dead rabbits are an easy meal too.',
+  owl: 'Barn owls hunt by sound. Fly slowly and low over the fields while holding Q to listen, then swoop on whatever you hear rustling.',
+  osprey: 'Ospreys fish. Hover (hold Q) over the river until you see a trout, then let go and dive feet-first into the water.',
+  kite: 'Red kites are scavengers. Press Q to scan for dead rabbits, then glide down slowly to pick one up.',
+  hawk: 'Sparrowhawks ambush small birds. Fly low through the woods to stay hidden, then burst (Q) out at a flock of chaffinches.',
+};
 const tipSeen = {};
 let tipCool = 20, slowT = 0, flapT = 0;
 function maybeTip(dt) {
@@ -1888,6 +2035,7 @@ function maybeTip(dt) {
   if (tipCool > 0 || !$('fact').hidden) return;
   const w = F.wind, ws = w.length();
   const pick =
+    !tipSeen.hunt && (F.food < 55 || game.t > 90) ? 'hunt' :
     flying && ws > 4 && (w.x * F.fwd.x + w.z * F.fwd.z) < -0.6 * ws ? 'headwind' :
     flying && !F.braking && F.speed * 3.6 > 65 && F.fwd.y < -0.05 && F.pos.y - surfaceAt(F.pos.x, F.pos.z) < 20 ? 'landing' :
     F.exhausted ? 'exhausted' :
@@ -1896,8 +2044,8 @@ function maybeTip(dt) {
     flapT > 6 ? 'flapping' :
     flying && F.inThermal === false && F.pos.y - groundAt(F.pos.x, F.pos.z) < 15 && F.energy < energyCap() * 0.6 ? 'climb' : null;
   if (!pick || (tipSeen[pick] || 0) >= 2) return;
-  tipSeen[pick] = (tipSeen[pick] || 0) + 1; tipCool = 75;
-  $('factHead').textContent = 'Flying tip'; $('factText').textContent = TIPS[pick]; $('fact').hidden = false;
+  tipSeen[pick] = (tipSeen[pick] || 0) + (pick === 'hunt' ? 2 : 1); tipCool = 75;
+  $('factHead').textContent = pick === 'hunt' ? 'Hunting tip' : 'Flying tip'; $('factText').textContent = pick === 'hunt' ? HUNT_TIPS[spId] || TIPS.climb : TIPS[pick]; $('fact').hidden = false;
   clearTimeout(factTimer); factTimer = setTimeout(() => { $('fact').hidden = true; }, 12000);
 }
 function showFactOnce(key) { if (!FACTS[key] || seenFacts.has(key)) return; seenFacts.add(key); showFact(key, 'Wild fact'); }
@@ -1978,9 +2126,9 @@ function strikeOdds(p) {
     if (p.type === 'carrion') {
       c = kmh < 70 ? 0.95 : 0.4; why = 'Too fast to grab it! Slow down and swoop low.';
     } else if (p.type === 'hare') {
-      c = kmh < 40 ? 0.35 : kmh < 170 ? 0.8 : 0.4;
-      why = kmh >= 170 ? 'Too fast! You overshot the hare.' : kmh < 40 ? 'Too slow! The hare kicked free.' : 'The hare jinked away!';
-      if (p.fleeT > 0) c -= 0.1;
+      c = kmh < 40 ? 0.45 : kmh < 170 ? 0.88 : 0.5;
+      why = kmh >= 170 ? 'Too fast! You overshot the hare.' : kmh < 40 ? 'Too slow! The hare kicked free.' : 'The hare jinked (dodged sharply sideways) and got away!';
+      if (p.fleeT > 0) c -= 0.05;
     } else if (p.type === 'fish') {
       c = 0.6; why = 'The trout slipped back into the deep water.';
     } else if (p.type === 'shrew') {
@@ -2028,7 +2176,7 @@ function tryCatch() {
       if (rand() < chance) catchPrey(p);
       else if (PREY[p.type].critter) {
         stats().misses++; burst(p.pos, tA.set(0, 3, 0), PREY[p.type].feathers, 4, 0); sfx.miss();
-        hideCritter(p, 6 + rand() * 6, false);
+        if (p.type === 'hare') { p.dodgeT = 2; p.fleeT = 4; p.yaw += rand() < .5 ? 1.4 : -1.4; } else hideCritter(p, 6 + rand() * 6, false);
         toast('Missed! ' + why, 'bad', 3000);
       } else {
         p.dodgeT = 3; p.fleeT = 3.5; stats().misses++;
@@ -2207,7 +2355,7 @@ function checkCollisions() {
       if (F.noPerchT > 0) continue;
       if (SP.treeSafe && kmh >= 35 && kmh < 95) { F.inWoods = true; continue; }
       if (kmh < 60) { perchAt('tree', false, t); return true; }
-      injure(Math.round(8 + (kmh - 60) * 0.3), 'Ouch! You flew into a tree. Slow below 60 km/h to land in one.');
+      injure(Math.round(8 + (kmh - 60) * 0.3), `Ouch! You flew into a tree. Slow below ${spd(60)} to land in one.`);
       if (F.mode !== 'fly') return true;
       tA.set(F.pos.x - t.x, 0, F.pos.z - t.z); if (tA.lengthSq() < 0.01) tA.set(1, 0, 0);
       tA.setLength(t.r + 1); F.pos.x = t.x + tA.x; F.pos.z = t.z + tA.z;
@@ -2270,6 +2418,23 @@ function updateFlight(dt, inp) {
   F.pitch += inp.y * (1.1 + F.speed / 90) * dt;
   if (F.tuck > 0.4 && inp.y <= 0) F.pitch = damp(F.pitch, -1.25, 1.4 * F.tuck, dt);
   if (settings.autoLevel && Math.abs(inp.y) < 0.1 && F.tuck < 0.3) F.pitch = damp(F.pitch, -0.05, 0.45, dt);
+  // Sparrowhawks (and other forest hunters) weave: when flying low among trees, the bird swerves round trunks ahead.
+  F.weaving = false;
+  if (SP.treeSafe && F.speed > 8) {
+    let push = 0;
+    for (const t of treesNear(F.pos.x, F.pos.z)) {
+      if (F.pos.y > t.top + 1) continue;
+      const dx = t.x - F.pos.x, dz = t.z - F.pos.z, ahead = dx * Math.sin(F.yaw) + dz * Math.cos(F.yaw), side = dx * Math.cos(F.yaw) - dz * Math.sin(F.yaw);
+      const clear = (F.pos.y < t.base ? 1.2 : t.r * 0.9) + 0.8;
+      if (ahead > 0 && ahead < 14 + F.speed * 0.6 && Math.abs(side) < clear) push += Math.sign(side || 1) * (1 - ahead / (14 + F.speed * 0.6)) * (clear - Math.abs(side) + 0.5);
+    }
+    if (push) {
+      F.weaving = true; F.weaveT = 0.6;
+      F.yaw -= clamp(push * 1.2, -3, 3) * dt;                      // swerve away from the trunk
+      F.roll = damp(F.roll, clamp(push * 0.6, -1.1, 1.1), 7, dt);   // and bank hard into the swerve
+    }
+    F.weaveT = Math.max(0, (F.weaveT || 0) - dt);
+  }
   // gentle aim assist toward the marked prey
   if (target && !F.carry) {
     tA.subVectors(target.pos, F.pos); const d = tA.length(); tA.normalize();
@@ -2318,7 +2483,13 @@ function updateFlight(dt, inp) {
   // at the slowest gliding speed you can't keep climbing without flapping (no stall, the nose stays put)
   if (!flapping && !F.hovering && F.fwd.y > 0 && F.speed < 9) F.pos.y -= F.fwd.y * F.speed * dt * (1 - (F.speed - 7) / 2);
   // the air itself moves you: wind changes speed and direction with height
-  windAt(F.pos.y, F.wind); F.pos.addScaledVector(F.wind, (F.hovering ? 0.15 : 0.8) * dt);
+  // Wind drifts you along, but a headwind can never slow you to a crawl: it takes off at most a quarter of your speed.
+  windAt(F.pos.y, F.wind);
+  const drift = tA.copy(F.wind).multiplyScalar(F.hovering ? 0.15 : 0.55);
+  const fx = Math.sin(F.yaw), fz = Math.cos(F.yaw), along = drift.x * fx + drift.z * fz, limit = -0.25 * F.speed * Math.cos(F.pitch);
+  if (along < limit) { drift.x += (limit - along) * fx; drift.z += (limit - along) * fz; }
+  F.pos.addScaledVector(drift, dt);
+  F.groundSpeed = Math.hypot((F.pos.x - F.prev.x) / Math.max(dt, 1e-3), (F.pos.z - F.prev.z) / Math.max(dt, 1e-3));
 
   tryCatch();
   if (checkCollisions()) return;
@@ -2332,7 +2503,7 @@ function updateFlight(dt, inp) {
   const kmh = F.speed * 3.6;
   if (kmh > stats().topSpeed) stats().topSpeed = kmh;
   if (F.inThermal) stats().thermalTime += dt;
-  if (F.inWoods && kmh > 50) stats().woodsTime += dt;
+  if ((F.inWoods || F.weaveT > 0) && kmh > 50) stats().woodsTime += dt;
   F.flapping = flapping;
   if (F.carry && Math.hypot(F.pos.x - EX, F.pos.z - EZ) < 20 && Math.abs(F.pos.y - EY) < 30) feedChicks();
 }
@@ -2427,7 +2598,8 @@ function poseFalcon(dt, inp) {
       const rel = wrapAngle(Math.atan2(tA.x, tA.z) - F.yaw);
       if (Math.abs(rel) < 1.2) look = clamp(rel, -0.7, 0.7);
     }
-    b.head.rotation.y = damp(b.head.rotation.y, look, 5, dt); b.head.rotation.x = damp(b.head.rotation.x, F.tuck * 0.2, 5, dt);
+    if (Math.abs(LOOKER.tYaw) > 0.02 || Math.abs(LOOKER.yaw) > 0.02) look = LOOKER.yaw;
+    b.head.rotation.y = damp(b.head.rotation.y, look, 5, dt); b.head.rotation.x = damp(b.head.rotation.x, F.tuck * 0.2 - LOOKER.pitch * 0.8, 5, dt);
     if (F.flapping && Math.sin(F.flapPh) > 0.95 && F.flapSnd <= 0) { whoosh(0.07, 900); F.flapSnd = 0.2; }
     F.flapSnd -= dt;
   } else {
@@ -2444,7 +2616,8 @@ function poseFalcon(dt, inp) {
     else if (F.drinkT > 0) { lx = 1.3; }
     else if (!F.moving) { ly = Math.sin(game.t * 0.6) * 0.8 + Math.sin(game.t * 1.9) * 0.25; lx = 0.45 + Math.sin(game.t * 0.9) * 0.15; }
     else lx = 0.45 + Math.sin(game.t * 18) * 0.12;
-    b.head.rotation.y = damp(b.head.rotation.y, ly, 4, dt); b.head.rotation.x = damp(b.head.rotation.x, lx, 6, dt);
+    if (!sleeping && (Math.abs(LOOKER.tYaw) > 0.02 || Math.abs(LOOKER.yaw) > 0.02)) { ly = LOOKER.yaw; lx = 0.45 - LOOKER.pitch * 0.8; }
+    b.head.rotation.y = damp(b.head.rotation.y, ly, 6, dt); b.head.rotation.x = damp(b.head.rotation.x, lx, 6, dt);
   }
   if (F.carry) placeCarry();
 }
@@ -2467,30 +2640,36 @@ const camTarget = new V3(), camLook = new V3();
 let camInit = false;
 function updateCamera(dt) {
   const kmh = F.speed * 3.6;
+  LOOKER.tYaw = clamp(LOOKER.tYaw, -headLimit(), headLimit());
+  LOOKER.yaw = damp(LOOKER.yaw, LOOKER.tYaw, 8, dt); LOOKER.pitch = damp(LOOKER.pitch, LOOKER.tPitch, 8, dt);
+  const lookY = game.state === 'play' ? LOOKER.yaw : 0, lookP = game.state === 'play' ? LOOKER.pitch : 0;
   const flying = F.mode === 'fly' || game.state === 'menu';
   if (game.cam === 'first' && game.state === 'play') {
     falcon.group.visible = false;
     if (flying) {
       camera.position.copy(F.pos).addScaledVector(F.fwd, 0.3 * SIZE); camera.position.y += 0.1 * SIZE;
-      camera.quaternion.copy(falcon.group.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new V3(0, 1, 0), Math.PI));
+      camera.quaternion.copy(falcon.group.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new V3(0, 1, 0), Math.PI + lookY));
+      camera.rotateX(lookP);
     } else {
       camera.position.copy(F.pos); camera.position.y += 0.35;
-      camLook.set(F.pos.x + Math.sin(F.yaw + falcon.head.rotation.y) * 10, F.pos.y + 0.2, F.pos.z + Math.cos(F.yaw + falcon.head.rotation.y) * 10);
+      camLook.set(F.pos.x + Math.sin(F.yaw + falcon.head.rotation.y) * 10, F.pos.y + 0.2 + lookP * 8, F.pos.z + Math.cos(F.yaw + falcon.head.rotation.y) * 10);
       camera.lookAt(camLook);
     }
   } else {
     falcon.group.visible = true;
     if (flying) {
       const back = game.state === 'menu' ? 2.5 + SIZE * 3 : 1.6 + SIZE * 2.2 + F.tuck * 0.8;
-      camTarget.copy(F.pos).addScaledVector(F.fwd, -back); camTarget.y += game.state === 'menu' ? 0.8 + SIZE * 0.8 : 0.5 + SIZE * 0.6;
+      // the camera swings round behind your bird's head as it looks to the side
+      const lookDir = tB.copy(F.fwd).applyAxisAngle(tC.set(0, 1, 0), lookY);
+      camTarget.copy(F.pos).addScaledVector(lookDir, -back); camTarget.y += (game.state === 'menu' ? 0.8 + SIZE * 0.8 : 0.5 + SIZE * 0.6) - lookP * back * 0.6;
       if (game.state === 'menu') camTarget.addScaledVector(tA.set(F.fwd.z, 0, -F.fwd.x), 1.5 + SIZE);
-      camLook.copy(F.pos).addScaledVector(F.fwd, 2 + SIZE * 3);
+      camLook.copy(F.pos).addScaledVector(lookDir, 2 + SIZE * 3); camLook.y += lookP * (2 + SIZE * 3);
     } else {
       const orbit = F.mode === 'sleep' ? game.t * 0.15 : 0;
-      const a = F.yaw + Math.PI + orbit;
+      const a = F.yaw + Math.PI + orbit + lookY;
       const dist = 0.55 + SIZE * (F.mode === 'ground' ? 0.9 : 1.2);
       camTarget.set(F.pos.x + Math.sin(a) * dist, F.pos.y + 0.2 + SIZE * (F.mode === 'ground' ? 0.3 : 0.5), F.pos.z + Math.cos(a) * dist);
-      camLook.set(F.pos.x + Math.sin(F.yaw) * SIZE * 0.6, F.pos.y + 0.1, F.pos.z + Math.cos(F.yaw) * SIZE * 0.6);
+      camLook.set(F.pos.x + Math.sin(F.yaw + lookY) * SIZE * 0.6, F.pos.y + 0.1 + lookP * SIZE, F.pos.z + Math.cos(F.yaw + lookY) * SIZE * 0.6);
     }
     if (!camInit) { camera.position.copy(camTarget); camInit = true; }
     const k = flying ? 6 : 4;
@@ -2570,13 +2749,14 @@ function updateHUD() {
   frame++;
   const flying = F.mode === 'fly';
   const kmh = flying ? Math.round(F.speed * 3.6) : 0, g = surfaceAt(F.pos.x, F.pos.z);
-  $('spd').textContent = kmh; $('alt').textContent = Math.max(0, Math.round(F.pos.y - g - (flying ? 0 : LEG)));
+  const gk = flying ? Math.round((F.groundSpeed ?? F.speed) * 3.6) : 0;
+  $('spd').textContent = Math.round(settings.mph ? gk * 0.621 : gk); $('spdUnit').textContent = spdUnit(); $('alt').textContent = Math.max(0, Math.round(F.pos.y - g - (flying ? 0 : LEG)));
   setBar('nHealth', F.health); setBar('nEnergy', F.energy, maxEnergy()); setBar('nFood', F.food); setBar('nWater', F.water); setBar('nRest', F.rest);
   $('clockTime').textContent = `Day ${TOD.day} · ${fmtTime(TOD.hour)}`; $('clockPart').textContent = partOfDay(TOD.hour);
   $('gauges').classList.toggle('stoop', flying && F.tuck > 0.5);
   windAt(F.pos.y, F.wind);
   const wk = Math.round(F.wind.length() * 3.6), wrel = wrapAngle(Math.atan2(F.wind.x, F.wind.z) - F.yaw);
-  $('windSpd').textContent = wk; $('windArrow').style.transform = `rotate(${-wrel}rad)`;
+  $('windSpd').textContent = Math.round(settings.mph ? wk * 0.621 : wk); $('windUnit').textContent = 'wind ' + spdUnit(); $('windArrow').style.transform = `rotate(${-wrel}rad)`;
   if (wk > 28 && flying) showFactOnce('wind');
   $('vignette').style.opacity = flying ? clamp((kmh - 150) / 200, 0, 0.9) : 0;
   hurtLevel = Math.max(hurtLevel * 0.95, F.health < 30 ? 0.35 + Math.sin(game.t * 4) * 0.1 : 0);
@@ -2591,7 +2771,7 @@ function updateHUD() {
   if (F.hovering) tags.push(['HOVERING', 'gold']);
   if (F.listening) tags.push(['LISTENING', 'gold']);
   if (F.scanT > 0) tags.push([SP.ability === 'sight' ? 'KEEN SIGHT' : 'SCANNING', 'gold']);
-  if (F.inWoods) tags.push(['WEAVING THROUGH TREES', 'good']);
+  if (F.inWoods || F.weaveT > 0) tags.push(['WEAVING THROUGH TREES', 'good']);
   if (F.exhausted) tags.push(['EXHAUSTED', 'bad']);
   if (F.health < 40) tags.push(['INJURED', 'bad']);
   if (F.stunT > 0) tags.push(['STUNNED', 'bad']);
@@ -2649,7 +2829,7 @@ function updateHUD() {
     const d = Math.round(target.pos.distanceTo(F.pos));
     let label = `${PREY[target.type].name} · ${d} m`;
     if (target.state === 'hidden') label = `${PREY[target.type].name} · rustling in the grass · ${d} m`;
-    else if (target.state === 'swim') label = `${PREY[target.type].name} · on the water · ${d} m`;
+    else if (target.state === 'swim') label = `${PREY[target.type].name} · on the ${target.flock.restOn === 'ground' ? 'ground' : 'water'} · ${d} m`;
     else if (d < 70) label += ` · ${Math.round(strikeOdds(target).chance * 100)}% strike`;
     if (target.dodgeT > 0) label = `${PREY[target.type].name} · escaping`;
     mk.firstChild.textContent = label;
@@ -2705,7 +2885,7 @@ function applySnapshot(s) {
   const b = s.bird || {};
   Object.assign(F, { health: b.health ?? 100, energy: b.energy ?? 100, food: b.food ?? 75, water: b.water ?? 75, rest: b.rest ?? 85,
     exhausted: false, stunT: 0, tuck: 0, flare: 0, roll: 0, pitch: 0, yaw: b.yaw ?? Math.PI / 2, drinkT: 0,
-    scanT: 0, skillCool: 0, hovering: false, listening: false, inWoods: false, sink: 0 });
+    scanT: 0, skillCool: 0, hovering: false, listening: false, inWoods: false, sink: 0, weaveT: 0, weaving: false });
   if (b.mode === 'perch' && b.perchType === 'tree' && TREES[b.tree]) perchAt('tree', true, TREES[b.tree]);
   else if (b.mode === 'ground') { F.pos.set(b.x, 0, b.z); landGround(false); stats().landings--; }
   else if (b.mode === 'fly') { F.mode = 'fly'; F.pos.set(b.x, b.y, b.z); F.speed = 20; }
@@ -2827,7 +3007,7 @@ function renderPause() {
     return `<div class="skill ${got ? 'got' : ''}"><small>${got ? 'Learned' : 'Unlocks at level ' + (LEVELS.indexOf(L) + 1)}</small><b>${S.name}</b><span>${S.desc}</span></div>`;
   }).join('');
   const tog = (id, label, on) => { $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on); };
-  tog('invertBtn', 'Invert up/down', settings.invert); tog('levelBtn', 'Auto-level', settings.autoLevel); tog('soundBtn', 'Sound', !settings.muted); tog('horizonBtn', 'Horizon line', settings.horizon);
+  tog('invertBtn', 'Invert up/down', settings.invert); tog('levelBtn', 'Auto-level', settings.autoLevel); tog('soundBtn', 'Sound', !settings.muted); $('unitsBtn').textContent = 'Speed: ' + spdUnit(); tog('horizonBtn', 'Horizon line', settings.horizon);
   renderSlots($('pauseSlots'), true);
   $('tipsList').innerHTML = Object.values(TIPS).map(t => `<div class="skill"><span>${t}</span></div>`).join('');
 }
@@ -2880,6 +3060,7 @@ $('resumeBtn').addEventListener('click', () => togglePause(false));
 $('invertBtn').addEventListener('click', () => { settings.invert = !settings.invert; saveSettings(); renderPause(); });
 $('levelBtn').addEventListener('click', () => { settings.autoLevel = !settings.autoLevel; saveSettings(); renderPause(); });
 $('soundBtn').addEventListener('click', () => { settings.muted = !settings.muted; saveSettings(); renderPause(); });
+$('unitsBtn').addEventListener('click', () => { settings.mph = !settings.mph; saveSettings(); renderPause(); renderMission(); });
 $('horizonBtn').addEventListener('click', () => { settings.horizon = !settings.horizon; saveSettings(); renderPause(); });
 $('camBtn').addEventListener('click', toggleCam);
 $('menuBtn').addEventListener('click', toMenu);
@@ -2915,7 +3096,7 @@ function tick() {
   if (game.state === 'menu' || live) {
     updateTime(dt);
     updatePrey(dt, live); updateParts(dt); updateChicks(dt); updateThermals(dt);
-    updateEagle(dt); updateWind(dt); foxes.forEach(f => updateFox(f, dt));
+    updateEagle(dt); updateWind(dt); foxes.forEach(f => updateFox(f, dt)); updateSoundVision(dt);
     windAt(560, tC);
     for (const c of clouds) { c.position.x += tC.x * dt; c.position.z += tC.z * dt; for (const k of ['x', 'z']) { if (c.position[k] > 1400) c.position[k] = -1400; if (c.position[k] < -1400) c.position[k] = 1400; } }
   }
