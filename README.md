@@ -8,6 +8,7 @@ A browser-based 3D bird-of-prey RPG. Each bird has its own flying style, special
 - **Rainforest** (unlocks at level 3): harpy eagle, bat falcon, spectacled owl and king vulture. Macaws, toucans, parakeets, monkeys, sloths, and bats at night. It also has a jungle temple, a tepui with a waterfall, and jaguars.
 - **Arctic Tundra** (unlocks at level 4): snowy owl, gyrfalcon, rough-legged buzzard and white-tailed eagle. Ptarmigan, lemmings, arctic hares, snow geese, caribou herds, arctic foxes and the northern lights.
 
+- **Fruit eaters:** not every bird is a bird of prey. The jay and waxwing (valley), toucan and scarlet macaw (rainforest) and raven and rock ptarmigan (Arctic) live on rowan berries, wild figs and crowberries. Fly slowly into a fruiting tree, or land next to the berries, to pick them. Watch out for the eagles and foxes!
 - **Open world** (level 10): play any bird in any world, and fly off the north or south edge of the map to migrate. The Arctic is north of the valley, the Rainforest south.
 
 Every world has landmarks to discover and challenges to complete (see the journal in the pause menu). Saves remember their world. To open a world directly, add `#world-rainforest` or `#world-arctic` to the address.

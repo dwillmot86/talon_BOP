@@ -1146,6 +1146,11 @@ Object.assign(LOOK, {
     wing: 0x7a6a56, tip: 0x2a221c, under: 0xece4d4, tailTop: 0xf0ece4, tailBars: 0x2a221c, beak: 0x2a2a2a, cere: 0xe8c84a, feet: 0xe8c84a }),
   seaeagle: like('eagle', { realLen: 0.85, realSpan: 2.25, beakLen: 1.5, beakW: .42, head: 0xd8ccb0, nape: 0xcfc0a0, back: 0x5a4430, belly: 0x4a3624, wing: 0x5e4834, tip: 0x221a14,
     under: 0x5a4632, tailTop: 0xf6f4ee, tailBars: undefined, beak: 0xf0c83a, beakTip: 0xe8b830, cere: 0xf0c83a, feet: 0xf0c83a }),
+  jay: like('pigeon', { realLen: 0.34, realSpan: 0.55, chord: 0.46, rounded: true, headR: .11, beakLen: 1.0, hook: .2, crest: 0xd8c8b8,
+    back: 0xc0a090, belly: 0xd8b8a0, head: 0xd0b4a0, cheek: 0xf0ece4, malar: 0x1a1a1a, wing: 0x4a6ac0, tip: 0x1a1a1a, under: 0xd8c8b8, tailTop: 0x1a1a1a, neck: undefined,
+    beak: 0x2a2a2a, eyeRing: 0xd0e0f0, feet: 0xb89a8a }),
+  waxwing: like('finch', { realLen: 0.18, realSpan: 0.34, crest: 0xc89a7a, back: 0xb8907a, belly: 0xd8b8a0, head: 0xc89a7a, patch: 0x111111, wing: 0x6a6a72, tip: 0x2a2a2a,
+    under: 0xc8b8a8, tailTop: 0x6a6a72, tailBars: 0xf0d030, beak: 0x1a1a1a, feet: 0x1a1a1a }),
   bat: like('finch', { rounded: true, primaries: 4, secondaries: 3, tailFeathers: 3, realLen: 0.11, realSpan: 0.4, beakLen: .4, crest: 0x4a3a30,
     back: 0x4a3a30, belly: 0x6a5444, head: 0x4a3a30, wing: 0x2a201c, tip: 0x2a201c, under: 0x3a2c26, beak: 0x3a2a24, feet: 0x2a201c }),
 });
@@ -1183,7 +1188,25 @@ Object.assign(SPECIES, {
   seaeagle: { world: 'arctic', lookLimit: 1.6, look: 'seaeagle', name: 'White-tailed Eagle', plural: 'White-tailed eagles', drag: .0013, tuckDrag: .0016, arrowDrag: .0013, thrust: 1.75, lift: 2.9, turn: 1.35, energy: 145, flapCost: 6, maxSpeed: 90, thermal: 1.3, ability: 'sight', start: 8,
     diet: { fish: 1.35, eel: 1.2, teal: 1.1, carrion: 1.1, pigeon: .9, grouse: .6, hare: .7, crow: .5, shrew: .3, finch: .1 } },
 });
+// birds that aren't birds of prey: they live on fruit and berries, and have to watch out for the hunters
+const FRUITY = { fruit: 1.4, carrion: .05, shrew: .05, finch: .05, pigeon: .03, teal: .03, crow: .03, grouse: .03, hare: .03, fish: .03, eel: .03, monkey: .03, sloth: .03, bat: .03 };
+Object.assign(SPECIES, {
+  jay: { world: 'valley', group: 'fruit', lookLimit: 1.6, look: 'jay', name: 'Jay', plural: 'Jays', drag: .0026, tuckDrag: .0022, arrowDrag: .002, thrust: 2.4, lift: 3.2, turn: 2.8, energy: 80, flapCost: 3.5, maxSpeed: 55, thermal: .6, ability: 'scan', start: 7,
+    diet: { ...FRUITY, fruit: 1.3, carrion: .5, shrew: .5 } },
+  waxwing: { world: 'valley', group: 'fruit', lookLimit: 1.6, look: 'waxwing', name: 'Waxwing', plural: 'Waxwings', drag: .0024, tuckDrag: .002, arrowDrag: .0018, thrust: 2.6, lift: 3.2, turn: 3, energy: 70, flapCost: 3, maxSpeed: 60, thermal: .6, ability: 'burst', start: 8,
+    diet: { ...FRUITY } },
+  toucan: { world: 'rainforest', group: 'fruit', lookLimit: 1.6, look: 'toucan', name: 'Toco Toucan', plural: 'Toucans', drag: .0026, tuckDrag: .0024, arrowDrag: .0022, thrust: 2.2, lift: 3, turn: 2.4, energy: 85, flapCost: 4, maxSpeed: 50, thermal: .6, ability: null, start: 7,
+    diet: { ...FRUITY, shrew: .5 } },
+  macaw: { world: 'rainforest', group: 'fruit', lookLimit: 1.6, look: 'macaw', name: 'Scarlet Macaw', plural: 'Scarlet macaws', drag: .0018, tuckDrag: .0018, arrowDrag: .0016, thrust: 2.3, lift: 3, turn: 2.2, energy: 110, flapCost: 4, maxSpeed: 65, thermal: .8, ability: 'scan', start: 7,
+    diet: { ...FRUITY } },
+  raven: { world: 'arctic', group: 'fruit', lookLimit: 1.6, look: 'raven', name: 'Common Raven', plural: 'Ravens', drag: .0016, tuckDrag: .0018, arrowDrag: .0016, thrust: 2, lift: 2.9, turn: 2.4, energy: 110, flapCost: 4.5, maxSpeed: 75, thermal: 1.1, ability: 'scan', start: 8,
+    diet: { ...FRUITY, carrion: 1.3, fruit: 1.1, shrew: .8, fish: .4, eel: .3, finch: .2, grouse: .1 } },
+  ptarmigan: { world: 'arctic', group: 'fruit', lookLimit: 1.6, look: 'ptarmigan', name: 'Rock Ptarmigan', plural: 'Ptarmigan', drag: .0026, tuckDrag: .0022, arrowDrag: .002, thrust: 2.6, lift: 3, turn: 2.3, energy: 75, flapCost: 4.5, maxSpeed: 60, thermal: .5, ability: 'burst', start: 8,
+    diet: { ...FRUITY } },
+});
 for (const sp of Object.values(SPECIES)) sp.world = sp.world || 'valley';
+// birds of prey leave fruit alone
+const dietOf = type => SP.diet[type] ?? (type === 'fruit' ? 0.05 : 1);
 const ABILITY = {
   sight: { label: 'SIGHT', name: 'Keen sight', hold: false },
   listen: { label: 'LISTEN', name: 'Listen', hold: true },
@@ -1206,6 +1229,8 @@ const PREY = {
   carrion: { name: 'Dead rabbit', xp: 20, food: 50, feathers: [0x8a7a68, 0xb0a08a], critter: true, range: 300 },
 };
 Object.assign(PREY, {
+  fruit: { name: { valley: 'Rowan berries', rainforest: 'Wild figs', arctic: 'Crowberries' }[BIOME], xp: 12, food: { valley: 18, rainforest: 25, arctic: 15 }[BIOME],
+    feathers: { valley: [0xd8301e, 0x3a7a2a], rainforest: [0x7a3a6a, 0x5aa03a], arctic: [0x1e1a2a, 0x3a6a3a] }[BIOME], critter: true, range: 200 },
   monkey: { name: 'Capuchin monkey', xp: 80, food: 70, feathers: [0x6a4a2a, 0xe8d8b8], critter: true, range: 300 },
   sloth: { name: 'Three-toed sloth', xp: 90, food: 85, feathers: [0x8a7a5a, 0x6a7a4a], critter: true, range: 300 },
   bat: { name: 'Fruit bat', xp: 35, speed: 12, flee: 18, alert: 30, feathers: [0x4a3a30, 0x2a201c, 0x6a5444], food: 22, nightOnly: true },
@@ -1244,10 +1269,10 @@ const CRIT = {
   arctic: { shrew: [0x8a6a4a, 0xd8c8a0, 0xb08a7a, 0x8a6a4a], hare: [0xf2f2ee, 0xffffff, 0x222222], eel: [0x6a7078, 0xd8dce0], fish: [0x5a6a5a, 0xe8e0c8, 0xd85a3a, 0x4a5a4a], carrion: [0x6a523a, 0xe6dccb, 0x5a4430] },
 }[BIOME];
 // rough real weights in kg, so heavy prey slows you down more
-const PREY_KG = { valley: { pigeon: .5, teal: .35, grouse: .65, crow: .5, shrew: .01, eel: .4, finch: .025, hare: 3, fish: .6, carrion: 1.2, monkey: 3, sloth: 4, bat: .05 },
-  rainforest: { pigeon: 1, crow: .6, finch: .1, teal: 2, grouse: 1.1, shrew: .02, eel: 1.5, hare: 3, fish: 1, carrion: 2, monkey: 3, sloth: 4, bat: .05 },
-  arctic: { pigeon: 2.5, crow: 1.2, finch: .04, teal: .8, grouse: .5, shrew: .06, eel: .5, hare: 4, fish: 1, carrion: 1.5, monkey: 3, sloth: 4, bat: .05 } }[BIOME];
-const BIRD_KG = { peregrine: .9, eagle: 4.5, owl: .3, osprey: 1.6, kite: 1.1, hawk: .26, harpy: 6, batfalcon: .2, snowyowl: 2, gyr: 1.4, specowl: .7, kingvulture: 3.4, roughleg: 1, seaeagle: 5 };
+const PREY_KG = { valley: { fruit: .03, pigeon: .5, teal: .35, grouse: .65, crow: .5, shrew: .01, eel: .4, finch: .025, hare: 3, fish: .6, carrion: 1.2, monkey: 3, sloth: 4, bat: .05 },
+  rainforest: { fruit: .08, pigeon: 1, crow: .6, finch: .1, teal: 2, grouse: 1.1, shrew: .02, eel: 1.5, hare: 3, fish: 1, carrion: 2, monkey: 3, sloth: 4, bat: .05 },
+  arctic: { fruit: .02, pigeon: 2.5, crow: 1.2, finch: .04, teal: .8, grouse: .5, shrew: .06, eel: .5, hare: 4, fish: 1, carrion: 1.5, monkey: 3, sloth: 4, bat: .05 } }[BIOME];
+const BIRD_KG = { peregrine: .9, eagle: 4.5, owl: .3, osprey: 1.6, kite: 1.1, hawk: .26, harpy: 6, batfalcon: .2, snowyowl: 2, gyr: 1.4, specowl: .7, kingvulture: 3.4, roughleg: 1, seaeagle: 5, jay: .17, waxwing: .06, toucan: .6, macaw: 1, raven: 1.2, ptarmigan: .45 };
 const carryLoad = () => F.carry ? (PREY_KG[F.carry.type] ?? 0.5) / (BIRD_KG[spId] ?? 1) / growth() : 0;
 const catchable = p => p.state === 'fly' || p.state === 'active';
 
@@ -1465,7 +1490,7 @@ const store = {
 };
 const settings = { invert: false, muted: false, autoLevel: false, horizon: true, mph: true, assist: true, ...(store.get(SETTINGS_KEY) || {}) };
 const saveSettings = () => store.set(SETTINGS_KEY, settings);
-const blankStats = () => ({ monkey: 0, sloth: 0, bat: 0, grouse: 0, distance: 0, pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, finch: 0, hare: 0, fish: 0, carrion: 0, scans: 0, bursts: 0, listenTime: 0, hoverTime: 0, woodsTime: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
+const blankStats = () => ({ fruit: 0, monkey: 0, sloth: 0, bat: 0, grouse: 0, distance: 0, pigeon: 0, teal: 0, crow: 0, shrew: 0, eel: 0, finch: 0, hare: 0, fish: 0, carrion: 0, scans: 0, bursts: 0, listenTime: 0, hoverTime: 0, woodsTime: 0, fed: 0, stoops: 0, thermalTime: 0, topSpeed: 0, eaten: 0, landings: 0, drinks: 0, sleeps: 0, misses: 0, crashes: 0 });
 let prog = { xp: 0, mission: 0, stats: blankStats(), done: false, found: [], chal: [] };
 const stats = () => prog.stats;
 
@@ -1588,6 +1613,28 @@ Object.assign(FACTS, {
   wtBack: 'White-tailed eagles died out in Britain in 1918. They were brought back to Scotland from Norway from 1975, and now well over 100 pairs nest there.',
   wtNest: 'White-tailed eagle nests are huge piles of sticks, and a pair may use the same nest for many years.',
   wtTail: 'Young white-tailed eagles have dark tails. The white tail only appears when they are about five years old.',
+});
+Object.assign(FACTS, {
+  fruit: { valley: 'Rowan berries turn bright red in autumn. Thrushes, waxwings and blackbirds gobble them up.',
+    rainforest: 'Fig trees are vital in the rainforest. Different fig trees fruit at different times of year, so there is almost always something to eat.',
+    arctic: 'Crowberries are small black berries on low shrubs all over the Arctic tundra. Birds, bears and people all eat them.' }[BIOME],
+  jAcorn: 'One jay can bury thousands of acorns in autumn to eat in winter. The ones it forgets grow into new oak trees.',
+  jAlarm: 'Jays give a loud, harsh screech when they spot a predator, warning every animal in the wood.',
+  jMimic: 'Jays are clever copycats. They can imitate the calls of other birds, including buzzards.',
+  wxName: 'Waxwings are named after the red tips on their wing feathers, which look like drops of sealing wax.',
+  wxBerry: 'Waxwings can eat hundreds of berries in a single day.',
+  wxIrruption: 'Waxwings nest in the forests of Scandinavia and Russia. In some winters, when the berries run out there, thousands fly to Britain.',
+  tcFruit: 'Toucans pick fruit with the tip of their beak, toss it into the air, and catch it in their throat to swallow it.',
+  tcSleep: 'When toucans sleep they turn their head round, tuck their huge beak under their back feathers, and fold their tail over the top.',
+  tcSeeds: 'Toucans eat fruit and drop the seeds far away, which helps plant new trees all over the rainforest.',
+  mcClay: 'Macaws gather in big, noisy groups at riverbank cliffs to lick clay. Scientists think it gives them salt their food is missing.',
+  mcPair: 'Scarlet macaws stay with the same partner for life, and often fly side by side, calling to each other.',
+  mcBeak: 'A macaw\'s beak is strong enough to crack open hard nuts and seeds that other animals can\'t.',
+  rvClever: 'Ravens are among the cleverest animals on Earth. They can solve puzzles and even plan ahead.',
+  rvPlay: 'Ravens play! They have been seen sliding down snowy slopes on their backs, apparently just for fun.',
+  ptColour: 'Rock ptarmigan change their feathers three times a year: white in winter, mottled brown in summer and greyer in autumn.',
+  ptFood: 'Ptarmigan eat buds, leaves and berries from low Arctic plants like willow and crowberry.',
+  smallBird: 'Small birds have to keep a lookout all the time: hawks, falcons, eagles and foxes all hunt them. Trees and bushes are the safest places to rest.',
 });
 const BIOME_FACTS = {
   rainforest: {
@@ -1761,6 +1808,21 @@ Object.assign(MISSION_SETS, {
     Q.master('Flying Barn Door', 'wtBack'),
   ],
 });
+const pick = (title, fact) => ({ title, text: () => `Eat some ${PREY.fruit.name.toLowerCase()}. Fly slowly past them, or land in a tree that has fruit and press ${KEY.act}.`, done: s => s.fruit >= 1, fact });
+const forage = (n, fact) => ({ title: 'Big appetite', text: () => `Pick ${n} lots of ${PREY.fruit.name.toLowerCase()} in total.`, done: s => s.fruit >= n, fact });
+Object.assign(MISSION_SETS, {
+  jay: [Q.land('smallBird'), pick('Berry picker', 'fruit'), { title: 'Find food', text: () => `Press ${KEY.skill} to look for food around the woods.`, done: s => s.scans >= 1, fact: 'jAcorn' },
+    Q.feed('jMimic'), forage(5, 'jAlarm'), Q.roost('sleep'), Q.master('Guardian of the Woods', 'jAcorn')],
+  waxwing: [Q.land('smallBird'), pick('Berry feast', 'wxName'), { title: 'Burst of speed', text: () => `Press ${KEY.skill} for a burst of speed. Handy for escaping hawks!`, done: s => s.bursts >= 1, fact: 'wxIrruption' },
+    Q.feed('fruit'), forage(6, 'wxBerry'), Q.roost('sleep'), Q.master('Berry Champion', 'wxBerry')],
+  toucan: [Q.land('smallBird'), pick('Fig picker', 'tcFruit'), Q.feed('tcSeeds'), forage(5, 'fruit'), Q.drink('drink'), Q.roost('tcSleep'), Q.master('Fruit Master', 'tcSeeds')],
+  macaw: [Q.thermal('mcPair'), pick('Fig picker', 'fruit'), { title: 'Find food', text: () => `Press ${KEY.skill} to look for fruit around the forest.`, done: s => s.scans >= 1, fact: 'mcBeak' },
+    Q.feed('mcPair'), Q.drink('mcClay'), forage(5, 'fruit'), Q.master('Rainbow of the Forest', 'pigeon')],
+  raven: [Q.thermal('rvPlay'), { title: 'Find food', text: () => `Press ${KEY.skill} to scan the tundra for something to eat.`, done: s => s.scans >= 1, fact: 'rvClever' },
+    { title: 'Leftovers', text: () => 'Pick up some caribou leftovers.', done: s => s.carrion >= 1, fact: 'carrion' }, pick('Berry snack', 'fruit'), Q.feed('crow'), Q.roost('sleep'), Q.master('Trickster of the North', 'rvClever')],
+  ptarmigan: [Q.land('smallBird'), pick('Crowberry picker', 'ptFood'), { title: 'Burst of speed', text: () => `Press ${KEY.skill} to burst away, just like a startled ptarmigan.`, done: s => s.bursts >= 1, fact: 'grouse' },
+    Q.feed('ptColour'), forage(6, 'fruit'), Q.roost('sleep'), Q.master('Spirit of the Tundra', 'ptColour')],
+});
 const missions = () => MISSION_SETS[spId];
 
 // ---------- player falcon ----------
@@ -1781,7 +1843,7 @@ const openWorld = () => bestLevel() >= 10;
 // a home for a bird visiting from another world: a treetop for tree nesters, a high ledge for the rest
 function ensureNest(id) {
   if (NESTS[id]) return;
-  const tree = ['owl', 'kite', 'hawk', 'harpy', 'specowl', 'batfalcon', 'kingvulture', 'osprey'].includes(id);
+  const tree = ['owl', 'kite', 'hawk', 'harpy', 'specowl', 'batfalcon', 'kingvulture', 'osprey', 'jay', 'waxwing', 'toucan', 'macaw'].includes(id);
   const seed = [...id].reduce((a, c) => a + c.charCodeAt(0), 0), z0 = ((seed * 137) % 1200) - 600, x0 = riverX(z0) + (seed % 2 ? 260 : -260);
   const scale = clamp(LOOK[SPECIES[id].look].realLen * 0.75, 0.25, 0.75);
   if (tree && TREES.length) {
@@ -2074,6 +2136,7 @@ function placeCarrion(p) {
 function hideCritter(p, secs, move) {
   p.state = 'hidden'; p.t = 0; p.hideFor = secs; p.b.group.visible = false; p.fleeT = 0;
   if (p.type === 'carrion') { placeCarrion(p); p.state = 'hidden'; p.b.group.visible = false; return; }
+  if (p.type === 'fruit') return;
   if (move && (p.type === 'shrew' || p.type === 'hare')) {
     for (let k = 0; k < 10; k++) { const x = p.home.x + (rand() - .5) * 40, z = p.home.z + (rand() - .5) * 40; if (heightAt(x, z) > 1.5) { p.pos.set(x, groundAt(x, z), z); break; } }
   }
@@ -2125,6 +2188,13 @@ const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 
     const p = { type: 'eel', b, pos: new V3(), home: new V3(), state: 'hidden', ...critterBase() };
     hideCritter(p, rand() * 12, false); prey.push(p);
   }
+  for (let i = 0; i < 48; i++) {
+    const b = makeFruit(); scene.add(b.group);
+    const near = i < 16 ? Object.values(NESTS)[i % Object.keys(NESTS).length] : null;
+    const home = near ? new V3(near.x + (rand() - .5) * 200, 0, near.z + (rand() - .5) * 200) : new V3((rand() - .5) * 1800, 0, (rand() - .5) * 1800);
+    const p = { type: 'fruit', b, pos: new V3(), home, state: 'active', ...critterBase() };
+    placeFruit(p); prey.push(p);
+  }
   if (BIOME === 'rainforest') {
     const hn = NESTS.harpy;
     for (let i = 0; i < 40; i++) {
@@ -2134,6 +2204,32 @@ const critterBase = () => ({ vel: new V3(), t: 0, hideFor: 0, fleeT: 0, dodgeT: 
       placeOnCanopy(p); prey.push(p);
     }
   }
+}
+// fruit and berries: on treetops in the valley and the rainforest, on low shrubs on the tundra
+function makeFruit() {
+  const g = new THREE.Group(), M = geo => new THREE.Mesh(geo, birdMat), [fc, lc] = PREY.fruit.feathers;
+  const berry = new THREE.IcosahedronGeometry(BIOME === 'rainforest' ? 0.07 : 0.045, 0);
+  const n = BIOME === 'rainforest' ? 4 : 9;
+  for (let i = 0; i < n; i++) { const b = M(facet(berry.clone(), () => fc, 0.12)); const a = i * 2.4; b.position.set(Math.cos(a) * 0.09 * Math.sqrt(i), 0.08 + (i % 3) * 0.04, Math.sin(a) * 0.09 * Math.sqrt(i)); g.add(b); }
+  for (const a of [0, 2.1, 4.2]) { const l = M(facet(new THREE.OctahedronGeometry(0.12, 0).scale(1, 0.15, 0.45), () => lc)); l.position.set(Math.cos(a) * 0.12, 0.04, Math.sin(a) * 0.12); l.rotation.y = -a; g.add(l); }
+  g.scale.setScalar(1.6);
+  return { group: g, scale: 1.6, wings: [], legs: { visible: false } };
+}
+function placeFruit(p) {
+  if (BIOME === 'arctic' || !TREES.length) {
+    for (let k = 0; k < 40; k++) {
+      const x = p.home.x + (rand() - .5) * 300, z = p.home.z + (rand() - .5) * 300, h = heightAt(x, z);
+      if (h > 2 && h < 150 && slopeAt(x, z) > 0.85) { p.pos.set(x, groundAt(x, z) + 0.05, z); break; }
+    }
+    p.tree = null;
+  } else {
+    const trees = placeFruit.trees || (placeFruit.trees = TREES.filter(t => t.kind === 'oak' && !t.giant));
+    let t = null;
+    for (let k = 0; k < 30; k++) { const c = trees[Math.floor(rand() * trees.length)]; if (!t || Math.hypot(c.x - p.home.x, c.z - p.home.z) < Math.hypot(t.x - p.home.x, t.z - p.home.z)) t = c; }
+    p.tree = t; p.pos.set(t.x + (rand() - .5) * t.r * 0.3, t.perchY - 0.15, t.z + (rand() - .5) * t.r * 0.3);
+  }
+  p.state = 'active'; p.t = 0; p.b.group.visible = true;
+  p.b.group.position.copy(p.pos); p.b.group.rotation.set(0, rand() * 6.28, 0);
 }
 // monkeys and sloths live up in the treetops
 function makeMonkey() {
@@ -2198,7 +2294,10 @@ function updateCanopy(p, dt, playing) {
 }
 function updateCritter(p, dt, playing) {
   p.t += dt; p.dodgeT = Math.max(0, p.dodgeT - dt);
-  if (p.type === 'carrion') return;
+  if (p.type === 'carrion' || p.type === 'fruit') {
+    if (p.state === 'hidden' && p.t > p.hideFor) { if (p.type === 'fruit') placeFruit(p); else { p.state = 'active'; p.b.group.visible = true; } }
+    return;
+  }
   if (p.type === 'monkey' || p.type === 'sloth') { updateCanopy(p, dt, playing); return; }
   if (p.type === 'hare') { updateHare(p, dt, playing); return; }
   if (p.type === 'fish') { updateFish(p, dt); return; }
@@ -2710,6 +2809,12 @@ const HUNT_TIPS = {
   kingvulture: `King vultures are scavengers. Soar on thermals, press ${KEY.skill} to scan for dead animals, then glide down slowly to pick one up.`,
   roughleg: `Rough-legged buzzards hover (hold ${KEY.skill}) over the tundra to find lemmings, then drop straight down onto them.`,
   seaeagle: `White-tailed eagles fish. Skim low over a lake or the river and grab a fish as it comes to the surface. Ducks and leftovers are good food too.`,
+  jay: `Jays find food all over the woods. Fly slowly past red rowan berries on the treetops to pick them, or land in the tree and press ${KEY.act}. Watch out for hawks!`,
+  waxwing: `Waxwings live on berries. Look for red rowan berries on the treetops and fly past them slowly. If a hawk chases you, burst (${KEY.skill}) to escape.`,
+  toucan: `Toucans eat fruit. Look for purple figs on the treetops, fly past slowly to pick them, or land in the tree and press ${KEY.act}.`,
+  macaw: `Macaws soar over the forest looking for fruit. Press ${KEY.skill} to find figs, then fly past them slowly to pick them.`,
+  raven: `Ravens eat almost anything: leftovers, crowberries, even lemmings. Press ${KEY.skill} to scan for food.`,
+  ptarmigan: `Ptarmigan eat crowberries on the ground. Land next to some and press ${KEY.act}, or fly past slowly. Burst (${KEY.skill}) away from danger!`,
   gyr: `Gyrfalcons chase prey low over the ground. Fly close to ptarmigan to flush them, then chase hard and strike from behind.`,
 };
 const tipSeen = {};
@@ -2819,6 +2924,8 @@ function strikeOdds(p) {
     let c, why;
     if (p.type === 'carrion') {
       c = kmh < 70 ? 0.95 : 0.4; why = 'Too fast to grab it! Slow down and swoop low.';
+    } else if (p.type === 'fruit') {
+      c = kmh < 45 ? 0.97 : 0.35; why = `Too fast to pluck the ${PREY.fruit.name.toLowerCase()}! Slow right down, or land in the tree and press ${KEY.act}.`;
     } else if (p.type === 'hare') {
       c = kmh < 40 ? 0.45 : kmh < 170 ? 0.88 : 0.5;
       why = kmh >= 170 ? 'Too fast! You overshot the hare.' : kmh < 40 ? 'Too slow! The hare kicked free.' : 'The hare jinked (dodged sharply sideways) and got away!';
@@ -2862,7 +2969,7 @@ function strikeOdds(p) {
 // what each bird is built to catch
 const plural = n => /s$|leftovers|char$|bass$|caribou$/.test(n) ? n : n + 's';
 function dietOdds(p, c, why) {
-  const diet = SP.diet[p.type] ?? 1;
+  const diet = dietOf(p.type);
   if (has('talons')) c += 0.06;
   if (diet < 0.2) why = spId === 'osprey' ? 'Ospreys only really eat fish!' : `${SP.plural} don't really hunt ${plural(PREY[p.type].name.toLowerCase())}. Too ${p.type === 'hare' ? 'big' : 'tricky'} for you!`;
   return { chance: clamp(c * diet, 0.03, 0.97), why };
@@ -2905,7 +3012,7 @@ function catchPrey(p) {
   sfx.kek(); whoosh(0.25, 500);
   flash('rgba(255,255,255,.9)', 0.35);
   if (stoop) toast(`STOOP STRIKE! ${T.name} +${xp} XP`, 'big', 3000);
-  else toast(`${T.name} caught! +${xp} XP`, 'gold');
+  else toast(`${T.name} ${p.type === 'fruit' ? 'picked' : 'caught'}! +${xp} XP`, 'gold');
   gainXP(xp);
 }
 // Carried prey hangs just below the talons in flight and lies in front of your feet on the ground.
@@ -2968,9 +3075,14 @@ function canDrink() {
   for (let i = 0; i < 8; i++) { const a = i / 8 * 6.283; if (heightAt(F.pos.x + Math.cos(a) * 3, F.pos.z + Math.sin(a) * 3) < 0) return true; }
   return false;
 }
+function fruitInReach() {
+  if (F.carry || (F.mode !== 'perch' && F.mode !== 'ground') || dietOf('fruit') < 1) return null;
+  return prey.find(p => p.type === 'fruit' && p.state === 'active' && Math.hypot(p.pos.x - F.pos.x, p.pos.z - F.pos.z) < 4 && Math.abs(p.pos.y - F.pos.y) < 3) || null;
+}
 function actionLabel() {
   if (F.mode === 'sleep') return 'WAKE';
   if (F.carry && F.mode !== 'sleep') return 'EAT';
+  if (fruitInReach()) return 'PICK';
   if (shrewInReach()) return 'POUNCE';
   if (canDrink()) return 'DRINK';
   if (F.mode === 'perch') return 'SLEEP';
@@ -2981,6 +3093,7 @@ function doAction() {
   const a = actionLabel();
   if (a === 'WAKE') wake();
   else if (a === 'EAT') eatCarry();
+  else if (a === 'PICK') catchPrey(fruitInReach());
   else if (a === 'POUNCE') pounce();
   else if (a === 'DRINK') drink();
   else if (a === 'SLEEP') trySleep();
@@ -3029,6 +3142,8 @@ function perchAt(type, silent = false, tree = null) {
     whoosh(0.15, 600);
   }
   if (type === 'nest' && F.carry) feedChicks();
+  // fruit eaters landing in a fruiting tree help themselves straight away
+  if (type === 'tree' && !silent) { const f = fruitInReach(); if (f) catchPrey(f); }
 }
 function landGround(soft) {
   F.mode = 'ground'; F.perchType = null; F.tree = null;
@@ -3039,6 +3154,7 @@ function landGround(soft) {
     const c = colliderAt(F.pos.x, F.pos.z);
     toast(c ? `Landed on the ${c.name}.` : `Landed. Watch out for ${PRED.name === 'fox' ? 'foxes' : PRED.name + 's'} on the ground!`, 'gold');
     whoosh(0.15, 600);
+    const f = fruitInReach(); if (f) catchPrey(f);
   }
 }
 function takeOff() {
@@ -3106,7 +3222,7 @@ function checkCollisions() {
 function ospreyPlunge(kmh) {
   burst(F.pos, tA.set(0, 7, 0), [0xcfe8f5, 0xffffff, 0x9fd0ec], 26, 0); sfx.splash();
   const fish = F.carry ? null : prey.find(p => (p.type === 'fish' || p.type === 'eel') && p.state === 'active' && Math.hypot(p.pos.x - F.pos.x, p.pos.z - F.pos.z) < 5);
-  if (fish) { if (rand() < 0.85 * (SP.diet[fish.type] ?? 1)) catchPrey(fish); else { hideCritter(fish, 6, false); stats().misses++; toast('Splash! The fish got away.', 'bad'); } }
+  if (fish) { if (rand() < 0.85 * dietOf(fish.type)) catchPrey(fish); else { hideCritter(fish, 6, false); stats().misses++; toast('Splash! The fish got away.', 'bad'); } }
   else toast('Splash! No fish there. Hover over a fish shadow first.', 'bad');
   F.pos.y = 1.4; F.pitch = 0.5; F.speed = 9; F.energy = Math.max(0, F.energy - 6); F.tuck = 0;
   if (kmh > 200) injure(12, 'You hit the water too hard!');
@@ -3434,10 +3550,10 @@ function drawMini() {
     const [x, y] = toMap(l.x, l.z); mctx.fillStyle = prog.found.includes(l.id) ? '#f0c02a' : 'rgba(255,255,255,.85)';
     mctx.beginPath(); mctx.moveTo(x, y - 4); mctx.lineTo(x + 3.5, y + 2.5); mctx.lineTo(x - 3.5, y + 2.5); mctx.closePath(); mctx.fill();
   }
-  const dotCol = { pigeon: '#ffffff', teal: '#5fe0b0', crow: '#1b1b1b', eel: '#c9b98a', finch: '#f0a088', hare: '#c08a50', fish: '#9fd0ec', carrion: '#d04030', shrew: '#e8d0a0', grouse: '#b07050', monkey: '#c08a50', sloth: '#9a9a6a', bat: '#3a2a24' };
+  const dotCol = { pigeon: '#ffffff', teal: '#5fe0b0', crow: '#1b1b1b', eel: '#c9b98a', finch: '#f0a088', hare: '#c08a50', fish: '#9fd0ec', carrion: '#d04030', fruit: '#e0405a', shrew: '#e8d0a0', grouse: '#b07050', monkey: '#c08a50', sloth: '#9a9a6a', bat: '#3a2a24' };
   for (const p of prey) {
     if (!(catchable(p) || p.state === 'swim') || !dotCol[p.type]) continue;
-    const diet = SP.diet[p.type] ?? 1;
+    const diet = dietOf(p.type);
     if (p.type === 'shrew' && !F.listening) continue;
     if ((PREY[p.type].critter || p.type === 'finch') && diet < 1 && F.scanT <= 0) continue;
     const [x, y] = toMap(p.pos.x, p.pos.z); mctx.fillStyle = dotCol[p.type]; mctx.fillRect(x - 1.5, y - 1.5, 3, 3);
@@ -3506,7 +3622,7 @@ function updateHUD() {
   const act = actionLabel();
   if (F.mode === 'ground') pr = F.stunT > 0 ? 'Stunned…' : `Walk slowly with <b>${isTouch ? 'the stick' : 'W A S D'}</b>. <b>${KEY.fly}</b> to take off.` + (act === 'DRINK' ? ` <b>${KEY.act}</b> to drink.` : act === 'POUNCE' ? ` <b>${KEY.act}</b> to pounce on the shrew!` : '');
   else if (F.mode === 'perch') pr = `<b>${KEY.fly}</b> to take off. <b>${KEY.sleep}</b> to sleep.`;
-  if (F.carry && F.mode !== 'sleep') pr = `Carrying a <b>${PREY[F.carry.type].name.toLowerCase()}</b>. ${carryLoad() > 0.45 ? 'It is heavy! ' : ''}Take it to your nest, <b>${KEY.act}</b> to eat it or <b>${KEY.drop}</b> to drop it.` + (flying ? '' : ` <b>${KEY.fly}</b> to take off.`);
+  if (F.carry && F.mode !== 'sleep') pr = `Carrying ${/s$/.test(PREY[F.carry.type].name) ? 'some' : 'a'} <b>${PREY[F.carry.type].name.toLowerCase()}</b>. ${carryLoad() > 0.45 ? 'It is heavy! ' : ''}Take it to your nest, <b>${KEY.act}</b> to eat it or <b>${KEY.drop}</b> to drop it.` + (flying ? '' : ` <b>${KEY.fly}</b> to take off.`);
   if (pr !== lastPrompt) { lastPrompt = pr; $('prompt').innerHTML = pr; $('prompt').hidden = !pr; }
   if (act !== lastAct) { lastAct = act; $('bAct').textContent = act; $('bAct').hidden = !act; }
   const fl = flying ? 'FLAP' : 'TAKE OFF';
@@ -3536,7 +3652,7 @@ function updateHUD() {
   if (watching) for (const p of prey) {
     const heard = F.listening && p.type === 'shrew' && p.state === 'hidden';
     if (!catchable(p) && p.state !== 'swim' && !heard) continue;
-    const diet = SP.diet[p.type] ?? 1;
+    const diet = dietOf(p.type);
     if (F.scanT > 0 && diet < 1) continue;
     if (F.listening && p.type !== 'shrew') continue;
     tA.subVectors(p.pos, F.pos); const d = tA.length();
@@ -3780,6 +3896,12 @@ const BIRDS = [
   { id: 'kingvulture', name: 'King Vulture', hab: 'Home: the top of the jungle temple', blurb: 'A huge, colourful scavenger. Soars for hours and finds dead animals in the forest.', skill: 'Scan: find food to scavenge', s: [2, 3, 2] },
   { id: 'roughleg', name: 'Rough-legged Buzzard', hab: 'Home: a ledge on a rocky hill', blurb: 'Feathered right down to its toes. Hovers over the tundra hunting lemmings.', skill: 'Hover: hang in one spot', s: [3, 3, 3] },
   { id: 'seaeagle', name: 'White-tailed Eagle', hab: 'Home: a huge nest above the big lake', blurb: 'The "flying barn door", Europe\'s biggest eagle. Snatches fish and ducks from the lakes.', skill: 'Keen sight: spot food from far away', s: [3, 5, 2] },
+  { id: 'jay', name: 'Jay', hab: 'Home: a nest in the woods', blurb: 'A clever, colourful crow that buries acorns and picks berries. Watch out for hawks!', skill: 'Scan: look for food', s: [2, 1, 3] },
+  { id: 'waxwing', name: 'Waxwing', hab: 'Home: a nest in the woods', blurb: 'A crested berry-lover with wax-red wingtips. Feast on rowan berries.', skill: 'Burst: dash away from danger', s: [3, 1, 3] },
+  { id: 'toucan', name: 'Toco Toucan', hab: 'Home: a hole high in a tree', blurb: 'That enormous orange beak is perfect for picking figs at the tips of branches.', skill: 'Pick fruit from the trees', s: [2, 1, 2] },
+  { id: 'macaw', name: 'Scarlet Macaw', hab: 'Home: a hole high in a tree', blurb: 'A brilliant red, yellow and blue parrot. Soars over the forest looking for fruit.', skill: 'Scan: look for fruit', s: [3, 2, 2] },
+  { id: 'raven', name: 'Common Raven', hab: 'Home: a ledge on the hills', blurb: 'One of the cleverest birds alive. Eats leftovers, berries and almost anything else.', skill: 'Scan: look for food', s: [3, 2, 3] },
+  { id: 'ptarmigan', name: 'Rock Ptarmigan', hab: 'Home: a scrape on the hillside', blurb: 'A plump tundra bird with feathered feet. Eats crowberries and bursts away from danger.', skill: 'Burst: dash away from danger', s: [2, 1, 4] },
   { id: 'gyr', name: 'Gyrfalcon', hab: 'Home: a ledge on the northern crag', blurb: 'The biggest falcon in the world. Chase ptarmigan and ducks low over the tundra.', skill: 'Stoop (Shift / DIVE)', s: [5, 4, 2] },
 ];
 BIRDS.forEach(b => { b.world = SPECIES[b.id].world; });
@@ -3802,7 +3924,7 @@ const pips = n => '<span class="pips">' + [1, 2, 3, 4, 5].map(i => `<i class="${
 function renderCards() {
   $('cards').innerHTML = BIRDS.filter(b => b.world === BIOME || openWorld()).map(b => `
   <button class="card ${b.id === chosen ? 'sel' : ''}" data-id="${b.id}" aria-pressed="${b.id === chosen}">
-    <span class="lock">${b.id === chosen ? 'Selected' : 'Tap to choose'}</span>
+    <span class="lock">${b.id === chosen ? 'Selected' : 'Tap to choose'}${SPECIES[b.id].group === 'fruit' ? ' · Fruit eater' : ''}</span>
     <h3>${b.name}</h3><p class="hab">${b.world === BIOME ? b.hab : 'Visiting from the ' + WORLDS[b.world].name}</p><p class="blurb">${b.blurb}</p><p class="hab">Skill: ${b.skill}</p>
     <span class="stats"><span>Speed</span>${pips(b.s[0])}<span>Power</span>${pips(b.s[1])}<span>Stealth</span>${pips(b.s[2])}</span>
   </button>`).join('');
@@ -3887,6 +4009,12 @@ $('newBtn').addEventListener('click', e => {
     kingvulture: `You are a king vulture on top of the old temple. Soar on a thermal and press ${KEY.skill} to scan for food.`,
     roughleg: `You are a rough-legged buzzard on your rocky ledge. Hold ${KEY.skill} to hover over the tundra.`,
     seaeagle: `You are a young white-tailed eagle above the big lake. Skim low over the water to snatch a fish.`,
+    jay: `You are a jay in the woods. Look for red rowan berries on the treetops, and keep an eye out for hawks!`,
+    waxwing: `You are a waxwing. Find red rowan berries on the treetops and fly past slowly to pick them.`,
+    toucan: `You are a toucan. Find purple figs on the treetops and fly past slowly to pick them.`,
+    macaw: `You are a scarlet macaw. Soar over the forest and press ${KEY.skill} to look for figs.`,
+    raven: `You are a raven on the tundra. Press ${KEY.skill} to scan for leftovers and crowberries.`,
+    ptarmigan: `You are a rock ptarmigan. Crowberries grow on the ground: land next to some and press ${KEY.act}.`,
     gyr: `You are a young gyrfalcon on your crag. Press ${KEY.fly} to take off and hunt ptarmigan!`,
   };
   setTimeout(() => toast(intro[chosen], 'gold', 5500), 400);
