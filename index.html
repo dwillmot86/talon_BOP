@@ -581,6 +581,22 @@ scene.add(terrain);
 const water = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD).rotateX(-Math.PI / 2), toon(BIOME === 'rainforest' ? 0x4f5a3c : BIOME === 'arctic' ? 0x4a86b0 : 0x3d9cc6, { transparent: true, opacity: BIOME === 'rainforest' ? 0.9 : 0.84, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
 scene.add(water);
 const dummy = new THREE.Object3D();
+// Trees, shrubs, boulders and herds are drawn as instanced meshes. One mesh spanning the whole map is never
+// skipped, so every tree was drawn twice a frame (picture and shadows) even when far off screen.
+// Splitting them into map squares lets the renderer skip squares outside the view and the shadow area.
+function inst(geo, mat) {
+  return { geo, mat, list: [], castShadow: false, receiveShadow: false, get geometry() { return this.geo; },
+    setMatrixAt(i, m) { this.list[i] = { m: m.clone(), c: this.list[i]?.c }; }, setColorAt(i, c) { (this.list[i] ||= {}).c = c.clone(); } };
+}
+function addInst(b) {
+  const N = 6, size = WORLD / N, squares = new Map();
+  for (const it of b.list) { if (!it?.m) continue; const k = Math.floor((it.m.elements[12] + WORLD / 2) / size) * 100 + Math.floor((it.m.elements[14] + WORLD / 2) / size); if (!squares.has(k)) squares.set(k, []); squares.get(k).push(it); }
+  for (const items of squares.values()) {
+    const im = new THREE.InstancedMesh(b.geo, b.mat, items.length);
+    items.forEach((it, i) => { im.setMatrixAt(i, it.m); if (it.c) im.setColorAt(i, it.c); });
+    im.computeBoundingSphere(); im.castShadow = b.castShadow; im.receiveShadow = b.receiveShadow; scene.add(im);
+  }
+}
 
 // ---------- trees (also perches and hiding places) ----------
 const TREES = [], TREE_GRID = new Map(), CELL = 40;
@@ -603,10 +619,10 @@ if (BIOME === 'valley') {
     spots.push([x, h, z, h > 95 || (wood > 0.66 && rand() < .5) ? 1 : 0]);
   }
   const broad = spots.filter(s => !s[3]), pine = spots.filter(s => s[3]);
-  const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 1, 6).translate(0, 0.5, 0);
-  const trunks = new THREE.InstancedMesh(trunkGeo, toon(0x6b4f35), spots.length);
-  const canopy = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), toon(0xffffff), broad.length);
-  const cones = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 7).translate(0, 0.5, 0), toon(0xffffff), pine.length);
+  const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 1, 6, 1, true).translate(0, 0.5, 0);
+  const trunks = inst(trunkGeo, toon(0x6b4f35), spots.length);
+  const canopy = inst(new THREE.IcosahedronGeometry(1, 0), toon(0xffffff), broad.length);
+  const cones = inst(new THREE.ConeGeometry(1, 1, 7).translate(0, 0.5, 0), toon(0xffffff), pine.length);
   const col = new THREE.Color();
   spots.forEach((s, i) => {
     const sz = 0.8 + rand() * 0.7;
@@ -629,22 +645,22 @@ if (BIOME === 'valley') {
     cones.setColorAt(i, col.setHSL(0.36 + rand() * 0.05, 0.35, 0.22 + rand() * 0.06));
     addTree({ x: s[0], z: s[2], base: s[1] + 2.5, top: s[1] + 2 + 13 * sz, r: 2.2 * sz, perchY: s[1] + 2 + 11 * sz, kind: 'pine' });
   });
-  for (const m of [trunks, canopy, cones]) { m.castShadow = m.receiveShadow = true; scene.add(m); }
+  for (const m of [trunks, canopy, cones]) { m.castShadow = m.receiveShadow = true; addInst(m); }
 } else if (BIOME === 'rainforest') {
   // dense canopy on tall trunks, a few giant emergent kapok trees poking above it, and palms underneath
   const crowns = [], palms = [];
-  for (let i = 0; i < 18000 && crowns.length < 2700; i++) {
+  for (let i = 0; i < 18000 && crowns.length < 2300; i++) {
     const x = (rand() - .5) * 2300, z = (rand() - .5) * 2300, h = heightAt(x, z);
     if (h < 2 || h > 330 || Math.hypot(x - VX, z - VZ) < 75 || slopeAt(x, z) < 0.75) continue;
     if (Math.hypot(x - TEPUI.x, z - TEPUI.z) < TEPUI.r - 20 && rand() < 0.8) continue;
     const giant = rand() < 0.045;
     (rand() < 0.2 && !giant ? palms : crowns).push([x, h, z, giant]);
   }
-  const trunkGeo = new THREE.CylinderGeometry(0.3, 0.55, 1, 6).translate(0, 0.5, 0);
+  const trunkGeo = new THREE.CylinderGeometry(0.3, 0.55, 1, 6, 1, true).translate(0, 0.5, 0);
   const crownGeo = new THREE.IcosahedronGeometry(1, 0), crownPts = crownGeo.attributes.position, cp = new V3();
-  const trunks = new THREE.InstancedMesh(trunkGeo, toon(0x8a7a64), crowns.length + palms.length);
-  const canopy = new THREE.InstancedMesh(crownGeo, toon(0xffffff), crowns.length);
-  const fronds = new THREE.InstancedMesh(new THREE.OctahedronGeometry(1, 0), toon(0xffffff), palms.length);
+  const trunks = inst(trunkGeo, toon(0x8a7a64), crowns.length + palms.length);
+  const canopy = inst(crownGeo, toon(0xffffff), crowns.length);
+  const fronds = inst(new THREE.OctahedronGeometry(1, 0), toon(0xffffff), palms.length);
   const col = new THREE.Color();
   crowns.forEach((s, i) => {
     const sz = 0.9 + rand() * 0.6, giant = s[3], th = giant ? 40 + rand() * 10 : 17 + rand() * 11, cr = giant ? 13 + rand() * 4 : 6.5 * sz, ch = giant ? 6 : 3.2 * sz;
@@ -665,7 +681,8 @@ if (BIOME === 'valley') {
     fronds.setMatrixAt(i, dummy.matrix); fronds.setColorAt(i, col.setHSL(0.27 + rand() * 0.06, 0.55, 0.33 + rand() * 0.08));
     addTree({ x: s[0], z: s[2], base: s[1] + th - 1, top: s[1] + th + 0.8, r: 2.5, perchY: s[1] + th + 0.7, kind: 'pine' });
   });
-  for (const m of [trunks, canopy, fronds]) { m.castShadow = m.receiveShadow = true; scene.add(m); }
+  // under the dense canopy the trunks' and palms' own shadows can't be seen, so only the crowns cast them
+  for (const m of [trunks, canopy, fronds]) { m.castShadow = m === canopy; m.receiveShadow = true; addInst(m); }
 } else {
   // tundra: no trees, just low shrubs (willow and birch only grow knee-high here)
   const spots = [];
@@ -673,13 +690,13 @@ if (BIOME === 'valley') {
     const x = (rand() - .5) * 2200, z = (rand() - .5) * 2200, h = heightAt(x, z);
     if (h > 1.5 && h < 150 && slopeAt(x, z) > 0.85) spots.push([x, h, z]);
   }
-  const shrubs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), toon(0xffffff), spots.length), col = new THREE.Color();
+  const shrubs = inst(new THREE.IcosahedronGeometry(1, 0), toon(0xffffff), spots.length), col = new THREE.Color();
   spots.forEach(([x, h, z], i) => {
     const sz = 0.4 + rand() * 0.7;
     dummy.position.set(x, h + sz * 0.3, z); dummy.rotation.set(rand(), rand() * 6, rand()); dummy.scale.set(sz * 1.4, sz * 0.6, sz * 1.4); dummy.updateMatrix();
     shrubs.setMatrixAt(i, dummy.matrix); shrubs.setColorAt(i, rand() < 0.5 ? col.setHSL(0.05, 0.45, 0.32) : col.setHSL(0.2, 0.3, 0.3));
   });
-  shrubs.receiveShadow = true; scene.add(shrubs);
+  shrubs.receiveShadow = true; addInst(shrubs);
 }
 
 // sheep in the valley; caribou herds on the tundra
@@ -691,10 +708,10 @@ if (BIOME === 'arctic') {
     const n = 5 + Math.floor(rand() * 7);
     for (let k = 0; k < n; k++) spots.push([x + (rand() - .5) * 30, z + (rand() - .5) * 30]);
   }
-  const bodies = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), toon(0x6a523a), spots.length);
-  const necks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.35, 0.55, 0.4), toon(0xe6dccb), spots.length);
-  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.25, 0.28, 0.55), toon(0x5a4430), spots.length);
-  const antlers = new THREE.InstancedMesh(new THREE.ConeGeometry(0.05, 0.9, 4).translate(0, 0.45, 0), toon(0xd8ccb0), spots.length * 2);
+  const bodies = inst(new THREE.IcosahedronGeometry(1, 1), toon(0x6a523a), spots.length);
+  const necks = inst(new THREE.BoxGeometry(0.35, 0.55, 0.4), toon(0xe6dccb), spots.length);
+  const heads = inst(new THREE.BoxGeometry(0.25, 0.28, 0.55), toon(0x5a4430), spots.length);
+  const antlers = inst(new THREE.ConeGeometry(0.05, 0.9, 4).translate(0, 0.45, 0), toon(0xd8ccb0), spots.length * 2);
   const e = new THREE.Euler(), off = new V3();
   spots.forEach(([x, z], i) => {
     const h = groundAt(x, z), yaw = rand() * 6.28; e.set(0, yaw, 0);
@@ -703,7 +720,7 @@ if (BIOME === 'arctic') {
     off.set(0, 0, 1.2).applyEuler(e); dummy.position.set(x + off.x, h + 1.6, z + off.z); dummy.rotation.set(0.5, yaw, 0); dummy.updateMatrix(); heads.setMatrixAt(i, dummy.matrix);
     for (const sx of [-1, 1]) { off.set(sx * 0.1, 0, 1.05).applyEuler(e); dummy.position.set(x + off.x, h + 1.75, z + off.z); dummy.rotation.set(-0.5, yaw, sx * 0.5); dummy.updateMatrix(); antlers.setMatrixAt(i * 2 + (sx > 0 ? 1 : 0), dummy.matrix); }
   });
-  for (const m of [bodies, necks, heads, antlers]) { m.castShadow = true; scene.add(m); }
+  for (const m of [bodies, necks, heads, antlers]) { m.castShadow = true; addInst(m); }
 }
 if (BIOME === 'valley') {
   const spots = [];
@@ -714,8 +731,8 @@ if (BIOME === 'valley') {
     const n = 2 + Math.floor(rand() * 4);
     for (let k = 0; k < n; k++) spots.push([x + (rand() - .5) * 16, z + (rand() - .5) * 16]);
   }
-  const bodies = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), toon(0xf6f3ea), spots.length);
-  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.55, 0.7), toon(0x26221f), spots.length);
+  const bodies = inst(new THREE.IcosahedronGeometry(1, 1), toon(0xf6f3ea), spots.length);
+  const heads = inst(new THREE.BoxGeometry(0.5, 0.55, 0.7), toon(0x26221f), spots.length);
   const e = new THREE.Euler(), off = new V3();
   spots.forEach(([x, z], i) => {
     const h = heightAt(x, z), yaw = rand() * 6.28;
@@ -724,7 +741,7 @@ if (BIOME === 'valley') {
     dummy.position.set(x + off.x, h + 0.5, z + off.z); dummy.rotation.set(0.5, yaw, 0); dummy.scale.set(0.55, 0.55, 0.55); dummy.updateMatrix(); heads.setMatrixAt(i, dummy.matrix);
   });
   bodies.castShadow = heads.castShadow = true;
-  scene.add(bodies, heads);
+  addInst(bodies); addInst(heads);
 }
 
 // village with a church; buildings are obstacles you can also land on
@@ -797,14 +814,14 @@ if (BIOME === 'valley') {
   }
   ink.position.set(ix, ih, iz); ink.traverse(m => { if (m.isMesh) m.castShadow = true; }); scene.add(ink);
   COLLIDERS.push({ x: ix, z: iz, r: 1.2, top: ih + 3.8, name: 'inukshuk' });
-  const boulders = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), toon(0x8a8c90), 420);
+  const boulders = inst(new THREE.DodecahedronGeometry(1, 0), toon(0x8a8c90), 420);
   for (let i = 0; i < 420; i++) {
     let x, z, bh; do { x = (rand() - .5) * 2000; z = (rand() - .5) * 2000; bh = heightAt(x, z); } while (bh < 1.5);
     const sc = rand() < 0.12 ? 2.2 + rand() * 2 : 0.5 + rand() * 1.2;
     dummy.position.set(x, bh + sc * 0.4, z); dummy.rotation.set(rand(), rand() * 6, rand()); dummy.scale.set(sc, sc * 0.8, sc); dummy.updateMatrix(); boulders.setMatrixAt(i, dummy.matrix);
     if (sc > 2) COLLIDERS.push({ x, z, r: sc * 0.8, top: bh + sc * 1.1, name: 'boulder' });
   }
-  boulders.castShadow = boulders.receiveShadow = true; scene.add(boulders);
+  boulders.castShadow = boulders.receiveShadow = true; addInst(boulders);
 }
 function colliderAt(x, z) { let best = null; for (const c of COLLIDERS) if (Math.hypot(x - c.x, z - c.z) < c.r && (!best || c.top > best.top)) best = c; return best; }
 function surfaceAt(x, z) { const c = colliderAt(x, z), g = groundAt(x, z); return c ? Math.max(g, c.top) : g; }
@@ -1285,9 +1302,22 @@ let chickHop = 0;
 const NESTS = {};
 function buildNest(id, x, y, z, { scale = 1.3, rocks = false, rags = false, perch = [2.4, 1.0, 0.6], chicksN = 3, owlets = false } = {}) {
   const g = new THREE.Group(); g.position.set(x, y, z);
+  // you perch on the rim facing out: over the valley, or for a nest on the ground, down the open slope
+  // (so you never take off straight into the hillside)
+  let out = x < riverX(z) ? Math.PI / 2 : -Math.PI / 2;
+  if (y - heightAt(x, z) < 2) {
+    let best = Infinity;
+    for (let k = 0; k < 24; k++) {
+      const a = k / 24 * 6.283; let worst = -Infinity;
+      for (const d of [8, 16, 30, 50]) worst = Math.max(worst, heightAt(x + Math.sin(a) * d, z + Math.cos(a) * d) - y - d * 0.25);
+      if (worst < best) { best = worst; out = a; }
+    }
+  }
   const nest = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.6, 6, 14).rotateX(Math.PI / 2), toon(0x7a5a3a)); nest.position.y = 0.4; g.add(nest);
   const fill = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.2, 0.5, 12), toon(0x5a4129)); fill.position.y = 0.3; g.add(fill);
-  if (rocks) { const rockG = new THREE.DodecahedronGeometry(1, 0), rockM = toon(0x8f887c); for (let i = 0; i < 7; i++) { const r = new THREE.Mesh(rockG, rockM), a = i / 7 * 6.28; r.scale.setScalar(1 + rand() * 1.6); r.position.set(Math.cos(a) * 4.2, 0.3, Math.sin(a) * 4.2); g.add(r); } }
+  if (rocks) { const rockG = new THREE.DodecahedronGeometry(1, 0), rockM = toon(0x8f887c); for (let i = 0; i < 7; i++) { const r = new THREE.Mesh(rockG, rockM), a = i / 7 * 6.28 + 0.3;
+    if (Math.cos(a) * Math.sin(out) + Math.sin(a) * Math.cos(out) > 0.35) continue;   // keep the way out clear
+    r.scale.setScalar(1 + rand() * 1.6); r.position.set(Math.cos(a) * 4.2, 0.3, Math.sin(a) * 4.2); g.add(r); } }
   // red kites really do decorate their nests with rags and litter
   if (rags) for (let i = 0; i < 4; i++) { const r = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.35), toon([0xf2f2f2, 0x4a7fc0, 0xe0c040, 0xd04040][i], { side: THREE.DoubleSide })); r.position.set(Math.cos(i * 1.6) * 1.6, 0.7, Math.sin(i * 1.6) * 1.6); r.rotation.set(rand(), rand() * 6, rand()); g.add(r); }
   const fluff = new THREE.IcosahedronGeometry(0.5, 0), fluffM = toon(0xfbf8f1), beakM = toon(owlets ? 0xe6d3b0 : 0x30343b), eyeM = toon(0x0d0d0d);
@@ -1305,8 +1335,6 @@ function buildNest(id, x, y, z, { scale = 1.3, rocks = false, rags = false, perc
   g.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
   g.scale.setScalar(scale);
   scene.add(g);
-  // you perch on the rim facing out over the valley, with your chicks behind you
-  const out = x < riverX(z) ? Math.PI / 2 : -Math.PI / 2;
   NESTS[id] = { x, y, z, yaw: out, perch: new V3(x + Math.sin(out) * 1.9 * scale, y + 0.6 * scale, z + Math.cos(out) * 1.9 * scale) };
 }
 function nearestTree(x, z, kind) { let best = null, bd = Infinity; for (const t of TREES) { if (kind && t.kind !== kind) continue; const d = Math.hypot(t.x - x, t.z - z); if (d < bd) { bd = d; best = t; } } return best; }
@@ -3152,7 +3180,7 @@ function landGround(soft) {
   stats().landings++;
   if (soft) {
     const c = colliderAt(F.pos.x, F.pos.z);
-    toast(c ? `Landed on the ${c.name}.` : `Landed. Watch out for ${PRED.name === 'fox' ? 'foxes' : PRED.name + 's'} on the ground!`, 'gold');
+    toast(c ? `Landed on the ${c.name}.` : `Landed. Watch out for ${PRED.name.endsWith('fox') ? PRED.name + 'es' : PRED.name + 's'} on the ground!`, 'gold');
     whoosh(0.15, 600);
     const f = fruitInReach(); if (f) catchPrey(f);
   }
@@ -3198,8 +3226,10 @@ function checkCollisions() {
     return false;
   }
   // ground and water
+  // test against the ground as it is drawn (groundAt): on hilltops the exact shape is a little higher than
+  // the drawn triangles, which made birds 'land' the instant they left a hilltop nest
   const g = heightAt(F.pos.x, F.pos.z);
-  if (F.pos.y < Math.max(g, 0) + 0.6) {
+  if (F.pos.y < groundAt(F.pos.x, F.pos.z) + 0.6) {
     if (g < 0.15 && spId === 'osprey' && F.pitch < -0.25) { ospreyPlunge(kmh); return false; }
     if (g < 0.15) {
       F.pos.y = 1.4; F.pitch = 0.45; F.speed = Math.max(F.speed * 0.5, 11); F.energy = Math.max(0, F.energy - 10);
@@ -4037,9 +4067,23 @@ addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); ca
 
 // ---------- loop ----------
 const clock = new THREE.Clock();
+// Automatic quality: if frames are slow, draw at a slightly lower resolution (and as a last resort drop
+// shadows); if there's plenty of headroom, creep back up. Checked every few seconds.
+const perf = { t: 0, n: 0, slow: 0, max: renderer.getPixelRatio() };
+perf.pr = perf.max;
+function adaptQuality(raw) {
+  perf.t += raw; perf.n++;
+  if (perf.t < 3) return;
+  const avg = perf.t / perf.n; perf.t = perf.n = 0;
+  if (avg > 1 / 38) {
+    if (perf.pr > 1) { perf.pr = Math.max(1, perf.pr - 0.25); renderer.setPixelRatio(perf.pr); renderer.setSize(innerWidth, innerHeight); }
+    else if (sun.castShadow && ++perf.slow >= 2) sun.castShadow = false;
+  } else if (avg < 1 / 55 && perf.pr < perf.max) { perf.pr = Math.min(perf.max, perf.pr + 0.25); renderer.setPixelRatio(perf.pr); renderer.setSize(innerWidth, innerHeight); }
+}
 function tick() {
   requestAnimationFrame(tick);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const raw = clock.getDelta(), dt = Math.min(raw, 0.05);
+  if (game.state === 'play' && !game.paused && raw < 0.5) adaptQuality(raw);
   game.t += dt;
   const live = game.state === 'play' && !game.paused;
   if (game.state === 'menu') updateMenuFlight(dt);
